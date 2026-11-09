@@ -10,25 +10,25 @@ There are two tenants in this demo. Tenant A is Steam Valve Corporation, Tenant 
 
 ## Who is involved
 
-Tenant A analyst — works for Steam Valve Corporation. Uses the role TENANT_A_ANALYST. Should only ever see Tenant A rows, through the secure views.
+Tenant A analyst — works for Steam Valve Corporation. Uses the role TENANT\_A\_ANALYST. Should only ever see Tenant A rows, through the secure views.
 
-Tenant B analyst — works for Electronic Arts. Uses TENANT_B_ANALYST. Same thing, only Tenant B rows.
+Tenant B analyst — works for Electronic Arts. Uses TENANT\_B\_ANALYST. Same thing, only Tenant B rows.
 
-Platform admin — CAPSTONE_ADMIN. Sets up the tables, views, roles and grants. Does not use the analyst views for day-to-day looking at data.
+Platform admin — CAPSTONE\_ADMIN. Sets up the tables, views, roles and grants. Does not use the analyst views for day-to-day looking at data.
 
-Support — CAPSTONE_SUPPORT. This is the break-glass role. It can see all tenants, but only when there is a real support case, and every time it is used that gets written to SUPPORT_ACCESS_LOG.
+Support — CAPSTONE\_SUPPORT. This is the break-glass role. It can see all tenants, but only when there is a real support case, and every time it is used that gets written to SUPPORT\_ACCESS\_LOG.
 
-Power BI user — one role per tenant, for example POWERBI_TENANT_A. It connects to that tenant's secure view only, nothing else.
+Power BI user — one role per tenant, for example POWERBI\_TENANT\_A. It connects to that tenant's secure view only, nothing else.
 
 Evaluator — can run direct SQL as any analyst role, to check what is allowed and what is denied.
 
 ## The rules for the data
 
-Every row in the fact tables has a tenant_id. If a row does not have a proper tenant, an analyst should not be able to see it.
+Every row in the fact tables has a tenant\_id. If a row does not have a proper tenant, an analyst should not be able to see it.
 
-Analysts get no SELECT on the base tables at all — no TENANT, CUSTOMER, ORDERS or ORDER_LINE directly. They only get SELECT on the secure views.
+Analysts get no SELECT on the base tables at all — no TENANT, CUSTOMER, ORDERS or ORDER\_LINE directly. They only get SELECT on the secure views.
 
-A secure view works out who is asking by checking CURRENT_ROLE(), looking that role up in ROLE_TENANT_MAP, and then only showing rows for that tenant.
+A secure view works out who is asking by checking CURRENT\_ROLE(), looking that role up in ROLE\_TENANT\_MAP, and then only showing rows for that tenant.
 
 Support is kept separate. It has its own view for all tenants, and it is only meant to be used through the support workflow, with a log entry.
 
@@ -48,12 +48,12 @@ This is not something to just claim. Each of these should be testable later:
 
 1. Run a query as Tenant A on the secure view. Only Tenant A rows come back, and the count matches the source CSV.
 2. Same for Tenant B. Only Tenant B rows.
-3. Try SELECT * FROM ORDERS as either analyst. It should be denied.
-4. As Tenant A, try WHERE tenant_id = 'B'. Still only Tenant A rows should come back.
-5. Support can query all tenants through the support view, and a row gets added to SUPPORT_ACCESS_LOG for it.
+3. Try SELECT \* FROM ORDERS as either analyst. It should be denied.
+4. As Tenant A, try WHERE tenant\_id = 'B'. Still only Tenant A rows should come back.
+5. Support can query all tenants through the support view, and a row gets added to SUPPORT\_ACCESS\_LOG for it.
 6. Revoke a grant, then run the same query again. It should now be denied.
 7. Power BI logged in as Tenant A only shows Tenant A numbers.
-8. Warehouse usage can be checked by role in QUERY_HISTORY and WAREHOUSE_METERING_HISTORY.
+8. Warehouse usage can be checked by role in QUERY\_HISTORY and WAREHOUSE\_METERING\_HISTORY.
 9. The React app logged in as Tenant A only shows Tenant A numbers too. It only talks to the Spring Boot API, it never talks to Snowflake directly.
 
 ## The KPIs
@@ -100,6 +100,4 @@ AI_USAGE_LOG.md
 README.md
 ```
 
-## Done when
-
-The GitHub repo is up with the folders above, this scope file is in /docs, the AI log is started, and the README explains the project in short. That is Task 1 finished.
+## 
