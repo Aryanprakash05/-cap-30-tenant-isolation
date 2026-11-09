@@ -43,7 +43,3 @@ Power BI and React are not the security layer here. Power BI only reads the secu
 ## The demo
 
 First, Tenant A access — a direct SQL query returns only Tenant A rows. Then Tenant B denial — the same kind of query from Tenant A does not return Tenant B rows. Then the support workflow — support can see all tenants, and that use is logged. And through all of it, the counts are checked back: CSV to Snowflake to Power BI, they should match.
-
-## Docs
-
-The scope for Task 1 is in `docs/task-01-scope.md`. The AI usage log is in `AI_USAGE_LOG.md`, kept from Task 1 onwards.
