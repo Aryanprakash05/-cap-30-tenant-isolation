@@ -117,7 +117,7 @@ README.md
 | 6. Access tests | Done |
 | 7. Usage monitoring | Done |
 | 8. Power BI layer + React UI | Done |
-| 9. Repeatability | Pending |
+| 9. Repeatability | Done |
 | 10. Documentation and defense | Pending |
 
 ## Docs
