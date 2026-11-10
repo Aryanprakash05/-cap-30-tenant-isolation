@@ -1,22 +1,95 @@
-# CAP-30 — Multi-Tenant Analytics Isolation
+# CAP-30 — Snowflake Multi-Tenant Analytics Isolation Demonstrator
 
-This is a small demo of a problem most SaaS companies run into: one shared warehouse, more than one customer, and each customer should only see their own data.
+A SaaS analytics provider serving multiple customers from one shared warehouse. Each tenant must only ever see its own data, proven by direct SQL that bypasses the app — not by hiding things in the UI.
 
-The idea here is to prove that in Snowflake itself. Not just by hiding things in the app or in Power BI, but by making sure a direct SQL query still cannot pull another tenant's rows.
+Solo project. Snowflake Standard Edition. Full stack: Snowflake SQL, Python, S3, IAM, Power BI, Spring Boot, React, GitHub Actions.
 
-It is a solo project. Everything in the stack is used: Snowflake SQL, Python, S3, IAM, Power BI, Spring Boot, React, and GitHub Actions.
+## Tenants
 
-## The stack, in short
+| Tenant | tenant_id | Customers | Orders | Revenue |
+| --- | --- | --- | --- | --- |
+| Steam Valve Corporation (A) | STEAM | 20 | 200 | 656,950.40 |
+| Electronic Arts (B) | EA | 20 | 200 | 854,522.10 |
 
-Snowflake is on Standard Edition. Row access policies need Enterprise, so they are not used here. Instead the isolation is done with roles, secure views, and a table that maps each role to a tenant.
+Names are demo labels. All customers, products, and orders are synthetic.
 
-Python makes the fake data and checks it. S3 is where the CSVs go first, with IAM set up so Snowflake can read them with as little access as needed. Spring Boot is the API in the middle — it passes the tenant role through and only queries the secure views. React is the frontend and only talks to that API. Power BI connects to the secure view for one tenant at a time. GitHub Actions runs the Python and SQL checks on push.
+## Architecture
 
-## The two tenants
+```mermaid
+flowchart LR
+    PY[Python generator] --> CSV[CSVs]
+    CSV --> S3[S3 bucket]
+    S3 --> STG[Snowflake stage]
+    STG --> BASE[TENANT_DATA base tables]
+    BASE --> VIEWS[ANALYTICS secure views]
+    VIEWS --> API[Spring Boot API]
+    VIEWS --> PBI[Power BI]
+    API --> REACT[React UI]
+```
 
-Tenant A is Steam Valve Corporation. Tenant B is Electronic Arts.
+Python makes the CSVs. They go to S3. Snowflake reads them through a stage into the base tables. Everything is then read only through secure views. Spring Boot passes the caller's role through and queries those views. React only calls Spring Boot. Power BI connects as the tenant role and reads the same views. Nothing else touches the base tables.
 
-They have separate customers and orders on purpose, so a leak would stand out straight away.
+## Data model
+
+```mermaid
+erDiagram
+    TENANT ||--o{ CUSTOMER : has
+    TENANT ||--o{ PRODUCT : sells
+    TENANT ||--o{ ORDERS : has
+    CUSTOMER ||--o{ ORDERS : places
+    ORDERS ||--o{ ORDER_LINE : contains
+    PRODUCT ||--o{ ORDER_LINE : appears_in
+    TENANT ||--o{ ROLE_TENANT_MAP : mapped_to
+    TENANT ||--o{ INGESTION_LOG : loaded_for
+```
+
+Database `CAPSTONE_DB`. Base tables in `TENANT_DATA`, secure views in `ANALYTICS`. Every fact row carries `tenant_id`.
+
+| Table | Rows | Purpose |
+| --- | --- | --- |
+| TENANT | 2 | Tenant master list |
+| CUSTOMER | 40 | One tenant per customer, 20 each |
+| PRODUCT | 24 | One tenant per product, 12 each |
+| ORDERS | 400 | One tenant per order, 200 each |
+| ORDER_LINE | 837 | Revenue per line, STEAM 411 / EA 426 |
+| ROLE_TENANT_MAP | 6 | Role to tenant mapping |
+| INGESTION_LOG | 6 | One row per file loaded |
+| INGESTION_ERRORS | 3 | Bad rows kept separate |
+| SUPPORT_ACCESS_LOG | 1 | One row per support access |
+
+## How isolation works
+
+```mermaid
+flowchart TB
+    U[User with a role] --> MAP[ROLE_TENANT_MAP lookup]
+    MAP --> V[Secure view filters by CURRENT_ROLE]
+    V --> R[Only that tenant's rows]
+    B[TENANT_DATA base tables] -.->|No access| U
+```
+
+Analyst roles get no SELECT on the base tables and no USAGE on the `TENANT_DATA` schema. They only get SELECT on the secure views in `ANALYTICS`. Each view joins `ROLE_TENANT_MAP` on `CURRENT_ROLE()` and returns only rows where the mapped tenant matches the row's tenant, or where the mapped tenant is `ALL`.
+
+| Role | Sees |
+| --- | --- |
+| TENANT_A_ANALYST | STEAM only |
+| TENANT_B_ANALYST | EA only |
+| POWERBI_TENANT_A | STEAM only |
+| POWERBI_TENANT_B | EA only |
+| CAPSTONE_SUPPORT | All, via secure views, logged |
+| CAPSTONE_ADMIN | All, setup only |
+
+## Verified results
+
+| Test | Result |
+| --- | --- |
+| Tenant A sees only STEAM | V_KPIS STEAM 656,950.40, 200 orders, 20 customers |
+| Tenant B sees only EA | V_KPIS EA 854,522.10, 200 orders, 20 customers |
+| B accessing A | 0 STEAM rows, 20 EA customers |
+| Base-table read as analyst | Denied, schema not authorized |
+| Support workflow | V_KPIS both tenants, SUPPORT_ACCESS_LOG 1 row |
+| Revoke and re-grant | Denied after revoke, 20 again after re-grant |
+| Warehouse usage | CAPSTONE_WH about 0.31 credits total |
+| Query tags | STEAM and EA tags visible in query history |
 
 ## Repo layout
 
@@ -26,20 +99,37 @@ They have separate customers and orders on purpose, so a leak would stand out st
 /app        — Spring Boot app
 /frontend   — React UI, calls the Spring Boot API only
 /powerbi    — report notes and connection details
-/docs       — scope, ERD, design notes, runbook, demo script
+/docs       — scope, architecture, guides, runbook, demo script
 /tests      — negative access tests and expected results
 AI_USAGE_LOG.md
 README.md
 ```
 
-## How the isolation works
+## Tasks
 
-Every fact row has a tenant_id. Analyst roles cannot select from the base tables at all. They can only select from secure views, and a secure view checks the current role, looks it up in the role-to-tenant map, and filters to that tenant.
+| Task | Status |
+| --- | --- |
+| 1. Problem model and success measures | Done |
+| 2. Architecture and data model | Done |
+| 3. Environment, synthetic data, ingestion | Done |
+| 4. Isolation control | Done |
+| 5. Roles and support workflow | Done |
+| 6. Access tests | Done |
+| 7. Usage monitoring | Done |
+| 8. Power BI layer + React UI | Next |
+| 9. Repeatability | Pending |
+| 10. Documentation and defense | Pending |
 
-Support has a separate view that can see all tenants, but only through the support workflow, and each use is logged.
+## Docs
 
-Power BI and React are not the security layer here. Power BI only reads the secure view. React only calls the Spring Boot API, which only reads the secure view.
+- Scope: `docs/task-01-scope.md`
+- Architecture: `docs/task-02-architecture.md`
+- Task guides: `docs/task-03-guide.md` through `docs/task-07-guide.md`
+- AI usage log: `AI_USAGE_LOG.md`, kept from Task 1 onwards
 
-## The demo
+## Limitations
 
-First, Tenant A access — a direct SQL query returns only Tenant A rows. Then Tenant B denial — the same kind of query from Tenant A does not return Tenant B rows. Then the support workflow — support can see all tenants, and that use is logged. And through all of it, the counts are checked back: CSV to Snowflake to Power BI, they should match.
+- Standard Edition has no row access policies. Isolation uses RBAC, secure views, and the role map instead.
+- The S3 storage integration is blocked by org policies (RCP denies `sts:AssumeRole` for principals outside the org, SCP restricts it by region). The load uses an IAM user with access keys in the stage instead. The integration design stays in the repo.
+- Support access is procedural: the log row must be inserted before the query. Nothing in Snowflake enforces that order.
+- `ACCOUNT_USAGE` views lag real time by 45 minutes to 3 hours.
