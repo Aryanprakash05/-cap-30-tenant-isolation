@@ -1,0 +1,108 @@
+USE ROLE ACCOUNTADMIN;
+
+CREATE WAREHOUSE IF NOT EXISTS CAPSTONE_WH
+    WAREHOUSE_SIZE = 'XSMALL'
+    AUTO_SUSPEND = 60
+    AUTO_RESUME = TRUE
+    INITIALLY_SUSPENDED = TRUE;
+
+USE WAREHOUSE CAPSTONE_WH;
+
+CREATE DATABASE IF NOT EXISTS CAPSTONE_DB;
+USE DATABASE CAPSTONE_DB;
+
+CREATE SCHEMA IF NOT EXISTS TENANT_DATA;
+CREATE SCHEMA IF NOT EXISTS ANALYTICS;
+
+USE SCHEMA TENANT_DATA;
+
+CREATE TABLE IF NOT EXISTS TENANT (
+    tenant_id   VARCHAR(10) PRIMARY KEY,
+    tenant_name VARCHAR(100) NOT NULL,
+    created_at  TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP()
+);
+
+CREATE TABLE IF NOT EXISTS CUSTOMER (
+    tenant_id     VARCHAR(10) NOT NULL,
+    customer_id   VARCHAR(20) NOT NULL,
+    customer_name VARCHAR(100) NOT NULL,
+    city          VARCHAR(50),
+    region        VARCHAR(20),
+    segment       VARCHAR(30),
+    created_at    TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP(),
+    PRIMARY KEY (tenant_id, customer_id),
+    FOREIGN KEY (tenant_id) REFERENCES TENANT(tenant_id)
+);
+
+CREATE TABLE IF NOT EXISTS PRODUCT (
+    tenant_id    VARCHAR(10) NOT NULL,
+    product_id   VARCHAR(20) NOT NULL,
+    product_name VARCHAR(100) NOT NULL,
+    category     VARCHAR(50),
+    list_price   NUMBER(10,2) NOT NULL,
+    PRIMARY KEY (tenant_id, product_id),
+    FOREIGN KEY (tenant_id) REFERENCES TENANT(tenant_id)
+);
+
+CREATE TABLE IF NOT EXISTS ORDERS (
+    tenant_id     VARCHAR(10) NOT NULL,
+    order_id      VARCHAR(20) NOT NULL,
+    customer_id   VARCHAR(20) NOT NULL,
+    order_date    DATE NOT NULL,
+    sales_channel VARCHAR(30),
+    PRIMARY KEY (tenant_id, order_id),
+    FOREIGN KEY (tenant_id) REFERENCES TENANT(tenant_id)
+);
+
+CREATE TABLE IF NOT EXISTS ORDER_LINE (
+    order_line_id VARCHAR(20) PRIMARY KEY,
+    tenant_id     VARCHAR(10) NOT NULL,
+    order_id      VARCHAR(20) NOT NULL,
+    product_id    VARCHAR(20) NOT NULL,
+    quantity      INT NOT NULL,
+    unit_price    NUMBER(10,2) NOT NULL,
+    discount_pct  NUMBER(5,2) DEFAULT 0,
+    revenue       NUMBER(12,2) NOT NULL,
+    FOREIGN KEY (tenant_id) REFERENCES TENANT(tenant_id)
+);
+
+CREATE TABLE IF NOT EXISTS ROLE_TENANT_MAP (
+    role_name VARCHAR(50) PRIMARY KEY,
+    tenant_id VARCHAR(10) NOT NULL,
+    note      VARCHAR(200)
+);
+
+CREATE TABLE IF NOT EXISTS INGESTION_LOG (
+    log_id        INT AUTOINCREMENT PRIMARY KEY,
+    file_name     VARCHAR(100) NOT NULL,
+    table_name    VARCHAR(50) NOT NULL,
+    tenant_id     VARCHAR(10),
+    rows_loaded   INT NOT NULL,
+    rows_rejected INT DEFAULT 0,
+    loaded_at     TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP(),
+    status        VARCHAR(20)
+);
+
+CREATE TABLE IF NOT EXISTS INGESTION_ERRORS (
+    error_id    INT AUTOINCREMENT PRIMARY KEY,
+    file_name   VARCHAR(100),
+    row_text    VARCHAR(1000),
+    error_text  VARCHAR(500),
+    logged_at   TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP()
+);
+
+CREATE TABLE IF NOT EXISTS SUPPORT_ACCESS_LOG (
+    log_id      INT AUTOINCREMENT PRIMARY KEY,
+    accessed_by VARCHAR(50) NOT NULL,
+    tenant_id   VARCHAR(10) NOT NULL,
+    reason      VARCHAR(200),
+    accessed_at TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP()
+);
+
+CREATE FILE FORMAT IF NOT EXISTS CAPSTONE_CSV_FORMAT
+    TYPE = 'CSV'
+    SKIP_HEADER = 1
+    FIELD_OPTIONALLY_ENCLOSED_BY = '"'
+    EMPTY_FIELD_AS_NULL = TRUE;
+
+SHOW TABLES IN SCHEMA TENANT_DATA;

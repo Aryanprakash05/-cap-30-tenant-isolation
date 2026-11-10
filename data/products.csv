@@ -1,0 +1,25 @@
+tenant_id,product_id,product_name,category,list_price
+STEAM,STEAM_P001,Star Forge,Action,1499
+STEAM,STEAM_P002,Neon Harbor,Adventure,999
+STEAM,STEAM_P003,Castle of Echoes,RPG,1999
+STEAM,STEAM_P004,Pixel Quest,Adventure,499
+STEAM,STEAM_P005,Deep Space Miner,Strategy,1299
+STEAM,STEAM_P006,Shadow Circuit,Action,1499
+STEAM,STEAM_P007,Frost Valley,RPG,1799
+STEAM,STEAM_P008,Turbo Kart Legends,Racing,999
+STEAM,STEAM_P009,Mystic Isles,Adventure,1199
+STEAM,STEAM_P010,Robot Uprising,Action,1999
+STEAM,STEAM_P011,Sky Pirates,Adventure,1499
+STEAM,STEAM_P012,Dungeon Crawl,RPG,999
+EA,EA_P001,Pro Soccer Stars,Sports,2999
+EA,EA_P002,Galaxy Racer,Racing,1499
+EA,EA_P003,Battle Arena X,Action,1999
+EA,EA_P004,Kingdom Builders,Strategy,1799
+EA,EA_P005,Zombie Survival,Action,1299
+EA,EA_P006,Ocean Explorer,Adventure,999
+EA,EA_P007,Mech Warriors,Action,2499
+EA,EA_P008,Fantasy League,Sports,1999
+EA,EA_P009,Speed Drift,Racing,1199
+EA,EA_P010,Alien Invasion,Action,1499
+EA,EA_P011,Treasure Hunt,Adventure,999
+EA,EA_P012,Cyber City,RPG,1799
