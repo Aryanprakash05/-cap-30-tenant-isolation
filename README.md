@@ -116,7 +116,7 @@ README.md
 | 5. Roles and support workflow | Done |
 | 6. Access tests | Done |
 | 7. Usage monitoring | Done |
-| 8. Power BI layer + React UI | Next |
+| 8. Power BI layer + React UI | Done |
 | 9. Repeatability | Pending |
 | 10. Documentation and defense | Pending |
 
@@ -124,7 +124,7 @@ README.md
 
 - Scope: `docs/task-01-scope.md`
 - Architecture: `docs/task-02-architecture.md`
-- Task guides: `docs/task-03-guide.md` through `docs/task-07-guide.md`
+- Task guides: `docs/task-03-guide.md` through `docs/task-08-guide.md`
 - AI usage log: `AI_USAGE_LOG.md`, kept from Task 1 onwards
 
 ## Limitations
