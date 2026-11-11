@@ -37,32 +37,56 @@ jobs:
       - name: Install dependencies
         run: pip install -r tests/requirements.txt
 
-      # The Snowflake hostname failed to resolve on the runner twice
-      # ("Temporary failure in name resolution"). This step only warns —
-      # it never fails the job — and falls back to Google DNS if the
-      # runner's resolver cannot see the host.
-      - name: Check Snowflake DNS (diagnostic + fallback)
+      # The Snowflake hostname failed to resolve on the runner three times
+      # ("Temporary failure in name resolution") even with the retry loop.
+      # The old step only wrote a Google-DNS fallback when its own one-off
+      # lookup failed, and /etc/resolv.conf on these runners is a symlink
+      # to systemd-resolved's stub file, which the resolver service can
+      # regenerate. This step always replaces the stub symlink with a real
+      # resolv.conf (Google + Cloudflare DNS), verifies the hostname
+      # resolves, and proves the host is reachable over HTTPS. It only
+      # warns — it never fails the job.
+      - name: Fix Snowflake DNS (diagnostic + fallback)
         env:
           SNOWFLAKE_HOST: ${{ secrets.SNOWFLAKE_HOST }}
         run: |
           python3 - <<'EOF'
-          import os, socket, subprocess
+          import os, socket, subprocess, urllib.request, urllib.error
           host = os.environ.get("SNOWFLAKE_HOST") or "FQ39967.ap-southeast-7.aws.snowflakecomputing.com"
+          def show(tag):
+              r = subprocess.run(["bash", "-c", "ls -l /etc/resolv.conf; cat /etc/resolv.conf"], capture_output=True, text=True)
+              print(f"[{tag}] resolv.conf:\n{r.stdout.strip()}")
+          show("before")
           try:
-              print("DNS OK:", host, "->", socket.gethostbyname(host))
+              print("lookup before fix:", host, "->", socket.gethostbyname(host))
           except Exception as e:
-              print(f"::warning::DNS lookup failed for {host}: {e} — trying Google DNS")
-              subprocess.run(["sudo", "sh", "-c", "echo 'nameserver 8.8.8.8' > /etc/resolv.conf"], check=False)
-              try:
-                  print("After fallback:", host, "->", socket.gethostbyname(host))
-              except Exception as e2:
-                  print(f"::warning::DNS still failing after fallback: {e2}")
+              print(f"::warning::lookup failed before fix: {e}")
+          subprocess.run(["sudo", "rm", "-f", "/etc/resolv.conf"], check=False)
+          subprocess.run(["sudo", "sh", "-c", "printf 'nameserver 8.8.8.8\\nnameserver 1.1.1.1\\n' > /etc/resolv.conf"], check=False)
+          show("after")
+          try:
+              print("lookup after fix:", host, "->", socket.gethostbyname(host))
+          except Exception as e:
+              print(f"::warning::lookup STILL failing after fix: {e}")
+          try:
+              req = urllib.request.Request(f"https://{host}/", method="HEAD")
+              with urllib.request.urlopen(req, timeout=15) as resp:
+                  print("HTTPS HEAD status:", resp.status, "(DNS + connectivity work)")
+          except urllib.error.URLError as e:
+              reason = str(getattr(e, "reason", e))
+              if "name resolution" in reason or "Name or service not known" in reason:
+                  print(f"::warning::HTTPS check: DNS still broken: {reason}")
+              else:
+                  print(f"HTTPS check: {type(e).__name__}: {reason} (non-DNS error — DNS works)")
+          except Exception as e:
+              print(f"HTTPS check: {type(e).__name__}: {e} (non-DNS error — DNS works)")
           EOF
 
       - name: Run original access tests
         run: |
           ok=0
           for i in 1 2 3; do
+            printf 'nameserver 8.8.8.8\nnameserver 1.1.1.1\n' | sudo tee /etc/resolv.conf > /dev/null
             if python tests/run_access_tests.py; then ok=1; break; fi
             echo "Attempt $i failed — retrying in 30s ..."
             sleep 30
@@ -89,6 +113,7 @@ jobs:
           mkdir -p reports
           ok=0
           for i in 1 2 3; do
+            printf 'nameserver 8.8.8.8\nnameserver 1.1.1.1\n' | sudo tee /etc/resolv.conf > /dev/null
             if pytest tests/test_isolation_extended.py -v --junitxml=reports/extended_results.xml; then ok=1; break; fi
             echo "Attempt $i failed — retrying in 30s ..."
             sleep 30
