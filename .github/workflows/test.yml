@@ -59,7 +59,7 @@ jobs:
       # to a 4.x version, change it there instead.
       - name: Install dependencies
         run: |
-          pip install -r tests/requirements.txt "snowflake-connector-python>=3.12,<4"
+          pip install -r tests/requirements.txt "snowflake-connector-python>=3.12,<4" pytest
           pip show snowflake-connector-python | head -2
 
       # Compute the account + host once, normalise them, export them for all
