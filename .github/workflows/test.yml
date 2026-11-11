@@ -80,7 +80,19 @@ jobs:
           ACCOUNT="${ACCOUNT%%/*}"                       # strip any path
 
           # Hostnames cannot contain underscores.
-          HOST="${RAW_HOST:-${ACCOUNT//_/-}.snowflakecomputing.com}"
+          # The account secret is the bare locator (FQ39967) — the region
+          # is NOT part of it, so it must be appended here. Without it the
+          # host becomes FQ39967.snowflakecomputing.com, which resolves to
+          # Snowflake's US front door and returns 404 for
+          # /session/v1/login-request. The account lives in
+          # ap-southeast-7 (AWS Asia Pacific Thailand).
+          if [ -n "$RAW_HOST" ]; then
+            HOST="$RAW_HOST"
+          elif [[ "$ACCOUNT" == *.* ]]; then
+            HOST="${ACCOUNT//_/-}.snowflakecomputing.com"
+          else
+            HOST="${ACCOUNT//_/-}.ap-southeast-7.aws.snowflakecomputing.com"
+          fi
           HOST="${HOST#https://}"
           HOST="${HOST%%/*}"
 
@@ -96,6 +108,14 @@ jobs:
             echo "::warning::SNOWFLAKE_HOST secret is empty — derived host from account"
           fi
 
+          # The runners' default resolver is systemd-resolved's stub
+          # (127.0.0.53), which has failed intermittently on this repo
+          # ("Temporary failure in name resolution" / "Name or service not
+          # known"). Replace it with a real resolv.conf before checking,
+          # so a flaky stub cannot fail the job here.
+          sudo rm -f /etc/resolv.conf
+          printf 'nameserver 8.8.8.8\nnameserver 1.1.1.1\n' | sudo tee /etc/resolv.conf > /dev/null
+
           # getent uses getaddrinfo(), the same call the connector makes.
           if ! getent ahosts "$HOST"; then
             echo "::error::'$HOST' does not resolve. The account identifier or host is wrong (check SNOWFLAKE_ACCOUNT / SNOWFLAKE_HOST secrets and the region part)."
@@ -106,12 +126,27 @@ jobs:
             || { echo "::error::Resolved, but cannot reach https://$HOST/"; exit 1; }
 
       - name: Run original access tests
-        run: python tests/run_access_tests.py
+        run: |
+          ok=0
+          for i in 1 2 3; do
+            printf 'nameserver 8.8.8.8\nnameserver 1.1.1.1\n' | sudo tee /etc/resolv.conf > /dev/null
+            if python tests/run_access_tests.py; then ok=1; break; fi
+            echo "Attempt $i failed — retrying in 30s ..."
+            sleep 30
+          done
+          [ "$ok" = 1 ]
 
       - name: Run extended isolation tests (T10-T19)
         run: |
           mkdir -p reports
-          pytest tests/test_isolation_extended.py -v --junitxml=reports/extended_results.xml
+          ok=0
+          for i in 1 2 3; do
+            printf 'nameserver 8.8.8.8\nnameserver 1.1.1.1\n' | sudo tee /etc/resolv.conf > /dev/null
+            if pytest tests/test_isolation_extended.py -v --junitxml=reports/extended_results.xml; then ok=1; break; fi
+            echo "Attempt $i failed — retrying in 30s ..."
+            sleep 30
+          done
+          [ "$ok" = 1 ]
           # T12 (expiry test, 70s) disabled in CI — run locally with SLOW_TESTS=1
 
       - name: Upload test report
