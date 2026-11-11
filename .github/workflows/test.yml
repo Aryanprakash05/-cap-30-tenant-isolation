@@ -37,8 +37,37 @@ jobs:
       - name: Install dependencies
         run: pip install -r tests/requirements.txt
 
+      # The Snowflake hostname failed to resolve on the runner twice
+      # ("Temporary failure in name resolution"). This step only warns —
+      # it never fails the job — and falls back to Google DNS if the
+      # runner's resolver cannot see the host.
+      - name: Check Snowflake DNS (diagnostic + fallback)
+        env:
+          SNOWFLAKE_HOST: ${{ secrets.SNOWFLAKE_HOST }}
+        run: |
+          python3 - <<'EOF'
+          import os, socket, subprocess
+          host = os.environ.get("SNOWFLAKE_HOST") or "FQ39967.ap-southeast-7.aws.snowflakecomputing.com"
+          try:
+              print("DNS OK:", host, "->", socket.gethostbyname(host))
+          except Exception as e:
+              print(f"::warning::DNS lookup failed for {host}: {e} — trying Google DNS")
+              subprocess.run(["sudo", "sh", "-c", "echo 'nameserver 8.8.8.8' > /etc/resolv.conf"], check=False)
+              try:
+                  print("After fallback:", host, "->", socket.gethostbyname(host))
+              except Exception as e2:
+                  print(f"::warning::DNS still failing after fallback: {e2}")
+          EOF
+
       - name: Run original access tests
-        run: python tests/run_access_tests.py
+        run: |
+          ok=0
+          for i in 1 2 3; do
+            if python tests/run_access_tests.py; then ok=1; break; fi
+            echo "Attempt $i failed — retrying in 30s ..."
+            sleep 30
+          done
+          [ "$ok" = 1 ]
         env:
           SNOWFLAKE_ACCOUNT:   ${{ secrets.SNOWFLAKE_ACCOUNT }}
           SNOWFLAKE_HOST:      ${{ secrets.SNOWFLAKE_HOST }}
@@ -58,7 +87,13 @@ jobs:
       - name: Run extended isolation tests (T10-T19)
         run: |
           mkdir -p reports
-          pytest tests/test_isolation_extended.py -v --junitxml=reports/extended_results.xml
+          ok=0
+          for i in 1 2 3; do
+            if pytest tests/test_isolation_extended.py -v --junitxml=reports/extended_results.xml; then ok=1; break; fi
+            echo "Attempt $i failed — retrying in 30s ..."
+            sleep 30
+          done
+          [ "$ok" = 1 ]
         env:
           SNOWFLAKE_ACCOUNT:            ${{ secrets.SNOWFLAKE_ACCOUNT }}
           SNOWFLAKE_HOST:               ${{ secrets.SNOWFLAKE_HOST }}

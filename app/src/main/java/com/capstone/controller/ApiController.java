@@ -49,22 +49,18 @@ public class ApiController {
         return null;
     }
 
-    private ResponseEntity<Map<String, Object>> forbidden(String role, String tenant) {
-        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
-                "error", "Access denied by tenant isolation policy",
-                "detail", "Role " + role + " is not authorized to query tenant " + tenant
-        ));
+    private ResponseEntity<Map<String, Object>> badRequest(String message) {
+        return ResponseEntity.badRequest().body(Map.of("error", message));
     }
 
-    private boolean tenantMatchesRole(String role, String tenant) {
-        if ("CAPSTONE_SUPPORT".equalsIgnoreCase(role) || "CAPSTONE_ADMIN".equalsIgnoreCase(role)) {
-            return true;
+    // Attach the Snowflake query ID of the last statement on this thread,
+    // when one was captured, so the UI can show it as audit evidence.
+    private ResponseEntity<?> withQueryId(Object body) {
+        String qid = snowflakeService.lastQueryId();
+        if (qid != null && !qid.isBlank()) {
+            return ResponseEntity.ok().header("X-Snowflake-Query-Id", qid).body(body);
         }
-        try {
-            return snowflakeService.tenantForRole(role).equalsIgnoreCase(tenant);
-        } catch (IllegalArgumentException e) {
-            return false;
-        }
+        return ResponseEntity.ok(body);
     }
 
     // -------------------------------------------------------------------------
@@ -109,59 +105,82 @@ public class ApiController {
     // Analytics Endpoints
     // -------------------------------------------------------------------------
 
+    // The tenant is optional: when it is absent the service derives it from
+    // the session role (analysts get their own tenant, support gets the
+    // single active grant's tenant). When it is present and does not match
+    // the caller's scope, the service denies it — that is the denial the
+    // Evidence screen's "Try to break it" panel relies on.
     @GetMapping("/kpis")
-    public ResponseEntity<?> getKpis(HttpServletRequest request, @RequestParam String tenant) {
+    public ResponseEntity<?> getKpis(HttpServletRequest request,
+            @RequestParam(required = false) String tenant) {
         String role = resolveRole(request);
         if (role == null) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Authentication required"));
         }
-        if (!tenantMatchesRole(role, tenant)) {
-            return forbidden(role, tenant);
-        }
         try {
-            return ResponseEntity.ok(snowflakeService.getKpis(role));
+            return withQueryId(snowflakeService.getKpis(role, tenant));
         } catch (AccessDeniedException e) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", e.getMessage()));
+        } catch (IllegalArgumentException e) {
+            return badRequest(e.getMessage());
         } catch (SQLException e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of("error", e.getMessage()));
         }
     }
 
     @GetMapping("/orders")
-    public ResponseEntity<?> getOrders(HttpServletRequest request, @RequestParam String tenant) {
+    public ResponseEntity<?> getOrders(HttpServletRequest request,
+            @RequestParam(required = false) String tenant) {
         String role = resolveRole(request);
         if (role == null) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Authentication required"));
         }
-        if (!tenantMatchesRole(role, tenant)) {
-            return forbidden(role, tenant);
-        }
         try {
-            return ResponseEntity.ok(snowflakeService.getOrders(role));
+            return withQueryId(snowflakeService.getOrders(role, tenant));
         } catch (AccessDeniedException e) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", e.getMessage()));
+        } catch (IllegalArgumentException e) {
+            return badRequest(e.getMessage());
         } catch (SQLException e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of("error", e.getMessage()));
         }
     }
 
     @GetMapping("/orders/{orderId}")
-    public ResponseEntity<?> getOrder(HttpServletRequest request, @RequestParam String tenant, @PathVariable String orderId) {
+    public ResponseEntity<?> getOrder(HttpServletRequest request,
+            @RequestParam(required = false) String tenant, @PathVariable String orderId) {
         String role = resolveRole(request);
         if (role == null) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Authentication required"));
         }
-        if (!tenantMatchesRole(role, tenant)) {
-            return forbidden(role, tenant);
-        }
         try {
-            Map<String, Object> order = snowflakeService.getOrder(role, orderId);
+            Map<String, Object> order = snowflakeService.getOrder(role, tenant, orderId);
             if (order.isEmpty()) {
                 return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "Order not found or not accessible"));
             }
-            return ResponseEntity.ok(order);
+            return withQueryId(order);
         } catch (AccessDeniedException e) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", e.getMessage()));
+        } catch (IllegalArgumentException e) {
+            return badRequest(e.getMessage());
+        } catch (SQLException e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    @GetMapping("/analytics/summary")
+    public ResponseEntity<?> getAnalyticsSummary(HttpServletRequest request,
+            @RequestParam(required = false) String tenant) {
+        String role = resolveRole(request);
+        if (role == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Authentication required"));
+        }
+        try {
+            return withQueryId(snowflakeService.getAnalyticsSummary(role, tenant));
+        } catch (AccessDeniedException e) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", e.getMessage()));
+        } catch (IllegalArgumentException e) {
+            return badRequest(e.getMessage());
         } catch (SQLException e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of("error", e.getMessage()));
         }
@@ -183,6 +202,11 @@ public class ApiController {
 
         try {
             Object result = snowflakeService.callSupportGrant(reason, tenant, durationMinutes);
+            // The procedure returns validation failures as plain strings
+            // ("ERROR: ...") instead of raising, so map those to HTTP 400.
+            if (result instanceof String s && s.startsWith("ERROR:")) {
+                return ResponseEntity.badRequest().body(Map.of("error", s));
+            }
             return ResponseEntity.ok(Map.of("status", "SUCCESS", "message", String.valueOf(result)));
         } catch (AccessDeniedException e) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", e.getMessage()));
@@ -201,7 +225,7 @@ public class ApiController {
         }
         try {
             List<Map<String, Object>> statusList = snowflakeService.getSupportStatus();
-            return ResponseEntity.ok(statusList);
+            return withQueryId(statusList);
         } catch (SQLException e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of("error", e.getMessage()));
         }
@@ -215,8 +239,60 @@ public class ApiController {
         }
         try {
             List<Map<String, Object>> customers = snowflakeService.getSupportCustomers();
-            return ResponseEntity.ok(customers);
+            return withQueryId(customers);
         } catch (SQLException e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    @PostMapping("/support/revoke")
+    public ResponseEntity<?> revokeSupportGrant(HttpServletRequest request) {
+        String role = resolveRole(request);
+        if (role == null || (!"CAPSTONE_SUPPORT".equalsIgnoreCase(role) && !"CAPSTONE_ADMIN".equalsIgnoreCase(role))) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "Only support principals can end break-glass access"));
+        }
+        try {
+            Object result = snowflakeService.callSupportRevoke();
+            String message = String.valueOf(result);
+            if (message.startsWith("ERROR:")) {
+                return ResponseEntity.badRequest().body(Map.of("error", message));
+            }
+            String status = message.startsWith("REVOKED:") ? "REVOKED" : "NO_ACTIVE_GRANT";
+            return ResponseEntity.ok(Map.of("status", status, "message", message));
+        } catch (AccessDeniedException e) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", e.getMessage()));
+        } catch (SQLException e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    @GetMapping("/support/history")
+    public ResponseEntity<?> getSupportHistory(HttpServletRequest request) {
+        String role = resolveRole(request);
+        if (role == null || (!"CAPSTONE_SUPPORT".equalsIgnoreCase(role) && !"CAPSTONE_ADMIN".equalsIgnoreCase(role))) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "Only support principals can view access history"));
+        }
+        try {
+            List<Map<String, Object>> history = snowflakeService.getSupportHistory(role);
+            return withQueryId(history);
+        } catch (SQLException e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Isolation Evidence
+    // -------------------------------------------------------------------------
+
+    @PostMapping("/evidence/run")
+    public ResponseEntity<?> runEvidence(HttpServletRequest request) {
+        if (resolveRole(request) == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Authentication required"));
+        }
+        try {
+            return ResponseEntity.ok(snowflakeService.runEvidenceTests());
+        } catch (Exception e) {
+            log.error("Evidence run failed: {}", e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of("error", e.getMessage()));
         }
     }
@@ -231,11 +307,23 @@ public class ApiController {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Authentication required"));
         }
         try {
-            List<Map<String, Object>> usage = snowflakeService.getUsageStats();
-            return ResponseEntity.ok(Map.of(
-                    "usage", usage,
-                    "account_usage_lag_note", "Snowflake ACCOUNT_USAGE may lag between 45 minutes to 3 hours."
-            ));
+            return withQueryId(snowflakeService.getUsageStats());
+        } catch (SQLException e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    // Ingestion health is staff-only: it names files and rejected rows, which
+    // is platform operations data, not tenant data. There is no separate
+    // admin login, so CAPSTONE_SUPPORT is the staff role that may see it.
+    @GetMapping("/ingestion")
+    public ResponseEntity<?> getIngestion(HttpServletRequest request) {
+        String role = resolveRole(request);
+        if (role == null || (!"CAPSTONE_SUPPORT".equalsIgnoreCase(role) && !"CAPSTONE_ADMIN".equalsIgnoreCase(role))) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "Only staff can view ingestion health"));
+        }
+        try {
+            return withQueryId(snowflakeService.getIngestionHealth());
         } catch (SQLException e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of("error", e.getMessage()));
         }
@@ -244,9 +332,11 @@ public class ApiController {
     @GetMapping("/health")
     public ResponseEntity<?> getHealth() {
         boolean sfOk = snowflakeService.testConnectivity();
+        Map<String, Object> warehouse = snowflakeService.getWarehouseState();
         Map<String, Object> health = Map.of(
                 "status", sfOk ? "UP" : "DEGRADED",
                 "snowflake", sfOk ? "CONNECTED" : "UNREACHABLE_OR_AUTHENTICATION_PENDING",
+                "warehouse", warehouse,
                 "timestamp", Instant.now().toString()
         );
         return sfOk ? ResponseEntity.ok(health) : ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(health);
