@@ -81,6 +81,18 @@ jobs:
           except Exception as e:
               print(f"HTTPS check: {type(e).__name__}: {e} (non-DNS error — DNS works)")
           EOF
+          # Pin the Snowflake host in /etc/hosts. The diagnostic above proves
+          # the system resolver works after the fix, yet the connector still
+          # fails with EAI_NONAME — its Rust core does not resolve through
+          # /etc/resolv.conf the way gethostbyname/urllib do. /etc/hosts is
+          # consulted before DNS by getaddrinfo and by the common Rust
+          # resolvers, and the hostname stays intact so TLS/SNI keep
+          # working. The entry is resolved fresh on every run.
+          HOST_IP=$(python3 -c "import socket,os; print(socket.gethostbyname(os.environ.get('SNOWFLAKE_HOST') or 'FQ39967.ap-southeast-7.aws.snowflakecomputing.com'))")
+          echo "Pinning Snowflake host -> $HOST_IP in /etc/hosts"
+          sudo sed -i "/$SNOWFLAKE_HOST/d" /etc/hosts
+          echo "$HOST_IP $SNOWFLAKE_HOST" | sudo tee -a /etc/hosts > /dev/null
+          getent hosts "$SNOWFLAKE_HOST"
 
       - name: Run original access tests
         run: |
