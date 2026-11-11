@@ -27,6 +27,22 @@ jobs:
     name: Access Tests (28 original + extended)
     runs-on: ubuntu-latest
     needs: lint-sql
+    # Credentials shared by every test step. SNOWFLAKE_ACCOUNT and
+    # SNOWFLAKE_HOST are deliberately NOT set here: the "Resolve and verify"
+    # step computes them and exports them via $GITHUB_ENV.
+    env:
+      SNOWFLAKE_ADMIN_USER:         ${{ secrets.SNOWFLAKE_ADMIN_USER }}
+      SNOWFLAKE_ADMIN_PASSWORD:     ${{ secrets.SNOWFLAKE_PASSWORD }}
+      SNOWFLAKE_TENANT_A_USER:      ${{ secrets.SNOWFLAKE_TENANT_A_USER }}
+      SNOWFLAKE_TENANT_A_PASSWORD:  ${{ secrets.SNOWFLAKE_TENANT_A_PASSWORD }}
+      SNOWFLAKE_TENANT_B_USER:      ${{ secrets.SNOWFLAKE_TENANT_B_USER }}
+      SNOWFLAKE_TENANT_B_PASSWORD:  ${{ secrets.SNOWFLAKE_TENANT_B_PASSWORD }}
+      SNOWFLAKE_SUPPORT_USER:       ${{ secrets.SNOWFLAKE_SUPPORT_USER }}
+      SNOWFLAKE_SUPPORT_PASSWORD:   ${{ secrets.SNOWFLAKE_SUPPORT_PASSWORD }}
+      SNOWFLAKE_POWERBI_A_USER:     ${{ secrets.SNOWFLAKE_POWERBI_A_USER }}
+      SNOWFLAKE_POWERBI_A_PASSWORD: ${{ secrets.SNOWFLAKE_POWERBI_A_PASSWORD }}
+      SNOWFLAKE_POWERBI_B_USER:     ${{ secrets.SNOWFLAKE_POWERBI_B_USER }}
+      SNOWFLAKE_POWERBI_B_PASSWORD: ${{ secrets.SNOWFLAKE_POWERBI_B_PASSWORD }}
     steps:
       - uses: actions/checkout@v5
 
@@ -34,114 +50,68 @@ jobs:
         with:
           python-version: "3.11"
 
+      # The traceback shows the new Rust-core connector ("core_driver",
+      # "failed to lookup address information"). Its resolver behaves
+      # differently from Python's socket module, which is why a lookup in
+      # Python succeeded while the connector still failed. Pin to the
+      # classic pure-Python 3.x connector, which uses the normal system
+      # resolver. If tests/requirements.txt already pins snowflake-connector
+      # to a 4.x version, change it there instead.
       - name: Install dependencies
-        run: pip install -r tests/requirements.txt
-
-      # The Snowflake hostname failed to resolve on the runner three times
-      # ("Temporary failure in name resolution") even with the retry loop.
-      # The old step only wrote a Google-DNS fallback when its own one-off
-      # lookup failed, and /etc/resolv.conf on these runners is a symlink
-      # to systemd-resolved's stub file, which the resolver service can
-      # regenerate. This step always replaces the stub symlink with a real
-      # resolv.conf (Google + Cloudflare DNS), verifies the hostname
-      # resolves, and proves the host is reachable over HTTPS. It only
-      # warns — it never fails the job.
-      - name: Fix Snowflake DNS (diagnostic + fallback)
-        env:
-          SNOWFLAKE_HOST: ${{ secrets.SNOWFLAKE_HOST }}
         run: |
-          python3 - <<'EOF'
-          import os, socket, subprocess, urllib.request, urllib.error
-          host = os.environ.get("SNOWFLAKE_HOST") or "FQ39967.ap-southeast-7.aws.snowflakecomputing.com"
-          def show(tag):
-              r = subprocess.run(["bash", "-c", "ls -l /etc/resolv.conf; cat /etc/resolv.conf"], capture_output=True, text=True)
-              print(f"[{tag}] resolv.conf:\n{r.stdout.strip()}")
-          show("before")
-          try:
-              print("lookup before fix:", host, "->", socket.gethostbyname(host))
-          except Exception as e:
-              print(f"::warning::lookup failed before fix: {e}")
-          subprocess.run(["sudo", "rm", "-f", "/etc/resolv.conf"], check=False)
-          subprocess.run(["sudo", "sh", "-c", "printf 'nameserver 8.8.8.8\\nnameserver 1.1.1.1\\n' > /etc/resolv.conf"], check=False)
-          show("after")
-          try:
-              print("lookup after fix:", host, "->", socket.gethostbyname(host))
-          except Exception as e:
-              print(f"::warning::lookup STILL failing after fix: {e}")
-          try:
-              req = urllib.request.Request(f"https://{host}/", method="HEAD")
-              with urllib.request.urlopen(req, timeout=15) as resp:
-                  print("HTTPS HEAD status:", resp.status, "(DNS + connectivity work)")
-          except urllib.error.URLError as e:
-              reason = str(getattr(e, "reason", e))
-              if "name resolution" in reason or "Name or service not known" in reason:
-                  print(f"::warning::HTTPS check: DNS still broken: {reason}")
-              else:
-                  print(f"HTTPS check: {type(e).__name__}: {reason} (non-DNS error — DNS works)")
-          except Exception as e:
-              print(f"HTTPS check: {type(e).__name__}: {e} (non-DNS error — DNS works)")
-          EOF
-          # Pin the Snowflake host in /etc/hosts. The diagnostic above proves
-          # the system resolver works after the fix, yet the connector still
-          # fails with EAI_NONAME — its Rust core does not resolve through
-          # /etc/resolv.conf the way gethostbyname/urllib do. /etc/hosts is
-          # consulted before DNS by getaddrinfo and by the common Rust
-          # resolvers, and the hostname stays intact so TLS/SNI keep
-          # working. The entry is resolved fresh on every run.
-          HOST_IP=$(python3 -c "import socket,os; print(socket.gethostbyname(os.environ.get('SNOWFLAKE_HOST') or 'FQ39967.ap-southeast-7.aws.snowflakecomputing.com'))")
-          echo "Pinning Snowflake host -> $HOST_IP in /etc/hosts"
-          sudo sed -i "/$SNOWFLAKE_HOST/d" /etc/hosts
-          echo "$HOST_IP $SNOWFLAKE_HOST" | sudo tee -a /etc/hosts > /dev/null
-          getent hosts "$SNOWFLAKE_HOST"
+          pip install -r tests/requirements.txt "snowflake-connector-python>=3.12,<4"
+          pip show snowflake-connector-python | head -2
+
+      # Compute the account + host once, normalise them, export them for all
+      # later steps, and FAIL FAST with a clear message if the host does not
+      # resolve. This replaces the resolv.conf / /etc/hosts hacks, which hid
+      # the real problem (a wrong or empty account/host) instead of fixing it.
+      - name: Resolve and verify Snowflake host
+        env:
+          RAW_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+          RAW_HOST:    ${{ secrets.SNOWFLAKE_HOST }}
+        run: |
+          DEFAULT_ACCOUNT="FQ39967.ap-southeast-7.aws"
+
+          # Empty/unset secrets fall back to the default.
+          ACCOUNT="${RAW_ACCOUNT:-$DEFAULT_ACCOUNT}"
+          ACCOUNT="${ACCOUNT#https://}"                  # strip scheme
+          ACCOUNT="${ACCOUNT%%.snowflakecomputing.com*}" # strip domain suffix
+          ACCOUNT="${ACCOUNT%%/*}"                       # strip any path
+
+          # Hostnames cannot contain underscores.
+          HOST="${RAW_HOST:-${ACCOUNT//_/-}.snowflakecomputing.com}"
+          HOST="${HOST#https://}"
+          HOST="${HOST%%/*}"
+
+          echo "SNOWFLAKE_ACCOUNT=$ACCOUNT" >> "$GITHUB_ENV"
+          echo "SNOWFLAKE_HOST=$HOST"       >> "$GITHUB_ENV"
+          echo "Account: $ACCOUNT"
+          echo "Host:    $HOST"
+
+          if [ -z "$RAW_ACCOUNT" ]; then
+            echo "::warning::SNOWFLAKE_ACCOUNT secret is empty — using default $DEFAULT_ACCOUNT"
+          fi
+          if [ -z "$RAW_HOST" ]; then
+            echo "::warning::SNOWFLAKE_HOST secret is empty — derived host from account"
+          fi
+
+          # getent uses getaddrinfo(), the same call the connector makes.
+          if ! getent ahosts "$HOST"; then
+            echo "::error::'$HOST' does not resolve. The account identifier or host is wrong (check SNOWFLAKE_ACCOUNT / SNOWFLAKE_HOST secrets and the region part)."
+            exit 1
+          fi
+
+          curl -sS -o /dev/null -m 20 -w "HTTPS status: %{http_code}\n" "https://$HOST/" \
+            || { echo "::error::Resolved, but cannot reach https://$HOST/"; exit 1; }
 
       - name: Run original access tests
-        run: |
-          ok=0
-          for i in 1 2 3; do
-            printf 'nameserver 8.8.8.8\nnameserver 1.1.1.1\n' | sudo tee /etc/resolv.conf > /dev/null
-            if python tests/run_access_tests.py; then ok=1; break; fi
-            echo "Attempt $i failed — retrying in 30s ..."
-            sleep 30
-          done
-          [ "$ok" = 1 ]
-        env:
-          SNOWFLAKE_ACCOUNT:   ${{ secrets.SNOWFLAKE_ACCOUNT }}
-          SNOWFLAKE_HOST:      ${{ secrets.SNOWFLAKE_HOST }}
-          SNOWFLAKE_ADMIN_USER:      ${{ secrets.SNOWFLAKE_ADMIN_USER }}
-          SNOWFLAKE_ADMIN_PASSWORD:  ${{ secrets.SNOWFLAKE_PASSWORD }}
-          SNOWFLAKE_TENANT_A_USER:     ${{ secrets.SNOWFLAKE_TENANT_A_USER }}
-          SNOWFLAKE_TENANT_A_PASSWORD: ${{ secrets.SNOWFLAKE_TENANT_A_PASSWORD }}
-          SNOWFLAKE_TENANT_B_USER:     ${{ secrets.SNOWFLAKE_TENANT_B_USER }}
-          SNOWFLAKE_TENANT_B_PASSWORD: ${{ secrets.SNOWFLAKE_TENANT_B_PASSWORD }}
-          SNOWFLAKE_SUPPORT_USER:      ${{ secrets.SNOWFLAKE_SUPPORT_USER }}
-          SNOWFLAKE_SUPPORT_PASSWORD:  ${{ secrets.SNOWFLAKE_SUPPORT_PASSWORD }}
-          SNOWFLAKE_POWERBI_A_USER:     ${{ secrets.SNOWFLAKE_POWERBI_A_USER }}
-          SNOWFLAKE_POWERBI_A_PASSWORD: ${{ secrets.SNOWFLAKE_POWERBI_A_PASSWORD }}
-          SNOWFLAKE_POWERBI_B_USER:     ${{ secrets.SNOWFLAKE_POWERBI_B_USER }}
-          SNOWFLAKE_POWERBI_B_PASSWORD: ${{ secrets.SNOWFLAKE_POWERBI_B_PASSWORD }}
+        run: python tests/run_access_tests.py
 
       - name: Run extended isolation tests (T10-T19)
         run: |
           mkdir -p reports
-          ok=0
-          for i in 1 2 3; do
-            printf 'nameserver 8.8.8.8\nnameserver 1.1.1.1\n' | sudo tee /etc/resolv.conf > /dev/null
-            if pytest tests/test_isolation_extended.py -v --junitxml=reports/extended_results.xml; then ok=1; break; fi
-            echo "Attempt $i failed — retrying in 30s ..."
-            sleep 30
-          done
-          [ "$ok" = 1 ]
-        env:
-          SNOWFLAKE_ACCOUNT:            ${{ secrets.SNOWFLAKE_ACCOUNT }}
-          SNOWFLAKE_HOST:               ${{ secrets.SNOWFLAKE_HOST }}
-          SNOWFLAKE_ADMIN_USER:         ${{ secrets.SNOWFLAKE_ADMIN_USER }}
-          SNOWFLAKE_ADMIN_PASSWORD:     ${{ secrets.SNOWFLAKE_PASSWORD }}
-          SNOWFLAKE_TENANT_A_USER:      ${{ secrets.SNOWFLAKE_TENANT_A_USER }}
-          SNOWFLAKE_TENANT_A_PASSWORD:  ${{ secrets.SNOWFLAKE_TENANT_A_PASSWORD }}
-          SNOWFLAKE_TENANT_B_USER:      ${{ secrets.SNOWFLAKE_TENANT_B_USER }}
-          SNOWFLAKE_TENANT_B_PASSWORD:  ${{ secrets.SNOWFLAKE_TENANT_B_PASSWORD }}
-          SNOWFLAKE_SUPPORT_USER:       ${{ secrets.SNOWFLAKE_SUPPORT_USER }}
-          SNOWFLAKE_SUPPORT_PASSWORD:   ${{ secrets.SNOWFLAKE_SUPPORT_PASSWORD }}
+          pytest tests/test_isolation_extended.py -v --junitxml=reports/extended_results.xml
           # T12 (expiry test, 70s) disabled in CI — run locally with SLOW_TESTS=1
 
       - name: Upload test report
@@ -150,6 +120,7 @@ jobs:
         with:
           name: test-report
           path: reports/
+          if-no-files-found: ignore
 
   # ── 3. Build Spring Boot API ───────────────────────────────────
   build-api:
