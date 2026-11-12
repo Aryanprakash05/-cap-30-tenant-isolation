@@ -163,8 +163,8 @@ No analyst role gets SELECT on `TENANT_DATA` at all. That grant is never given. 
 
 ```mermaid
 flowchart LR
-    PY[Python generator] --> CSV[CSVs]
-    CSV --> S3[S3 bucket]
+    PY[Python generator] --> CSV[CSVs, one folder per tenant]
+    CSV --> S3[S3 bucket, cap30/STEAM/ and cap30/EA/]
     S3 --> STG[Snowflake stage]
     STG --> BASE[TENANT_DATA base tables]
     BASE --> VIEWS[ANALYTICS secure views]
@@ -175,7 +175,7 @@ flowchart LR
 
 Step by step:
 
-Python makes the CSVs — tenants, customers, products, orders, order lines. Those go to S3. Snowflake reads them from S3 through a storage integration, into a stage, then COPY INTO the base tables. Counts are checked against INGESTION\_LOG. Then the secure views in ANALYTICS filter by role. Spring Boot connects as the tenant role and queries those views. React only calls Spring Boot. Power BI connects as the tenant Power BI role and reads the same views.
+Python makes the CSVs — tenants, customers, products, orders, order lines — one folder per tenant (`data/STEAM/`, `data/EA/`), so no file ever mixes the two companies. Those go to S3 under `cap30/STEAM/` and `cap30/EA/`, with `tenants.csv` and `edge_cases.csv` at the top level. Snowflake reads them from S3 through a stage (IAM-user credentials — the storage integration is blocked by org policy, see Task 3), then COPY INTO the base tables, one COPY per tenant per table. Counts are checked against INGESTION\_LOG. Then the secure views in ANALYTICS filter by role. Spring Boot connects as the tenant role and queries those views. React only calls Spring Boot. Power BI connects as the tenant Power BI role and reads the same views.
 
 Nothing else reads the base tables. Not React, not Power BI, not the analysts.
 
@@ -206,5 +206,7 @@ Why is tenant\_id on every table, not just orders? So a join cannot accidentally
 Why store revenue on ORDER\_LINE instead of calculating it every time? So the KPIs are simple sums, and the same number shows up in Snowflake, in the API, and in Power BI. If each layer calculated it differently, the reconciliation in Task 10 would never match.
 
 Why STEAM and EA as ids, not TENANT\_A and TENANT\_B? Because they are clearer in test output, and a leaked row is obvious. The full names are still in the TENANT table.
+
+Why one folder per tenant in S3, not one CSV per table? Because a single file holding both tenants' rows would put both companies' data in one object — anyone with read on that file sees both. Per-tenant folders keep the separation from the landing zone onward, so a leaked or mis-shared file exposes one tenant, not both. The stage user still reads both folders to load them, so the security boundary stays Snowflake — the folders are correct data engineering, not a replacement for the views.
 
 ## 

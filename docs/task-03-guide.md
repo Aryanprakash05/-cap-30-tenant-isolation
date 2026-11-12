@@ -12,15 +12,19 @@ Run from the repo root:
 python3 python/generate_data.py
 ```
 
-Output: `data/` with 6 files. Seed 30, so counts are repeatable.
+Output: `data/` with 10 files, one folder per tenant. Seed 30, so counts are repeatable. Each file holds only one tenant's rows — no file mixes the two companies.
 
 | File | Rows |
 | --- | --- |
 | tenants.csv | 2 |
-| customers.csv | 40 (20 STEAM + 20 EA) |
-| products.csv | 24 (12 STEAM + 12 EA) |
-| orders.csv | 400 (200 STEAM + 200 EA) |
-| order\_lines.csv | 837 |
+| STEAM/customers.csv | 20 |
+| EA/customers.csv | 20 |
+| STEAM/products.csv | 12 |
+| EA/products.csv | 12 |
+| STEAM/orders.csv | 200 |
+| EA/orders.csv | 200 |
+| STEAM/order\_lines.csv | 411 |
+| EA/order\_lines.csv | 426 |
 | edge\_cases.csv | 3 bad rows, kept separate |
 
 Expected revenue:
@@ -40,7 +44,7 @@ If counts differ from the table above, stop and investigate before loading.
 ## Part 2 — S3 and IAM
 
 1. Create a private bucket, `cap-30-tenant-data-aryan` (append a suffix if taken, use that name consistently). Block all public access.
-2. Upload the 5 clean CSVs to `cap30/`. Do not upload `edge_cases.csv`.
+2. Upload the 10 files to `cap30/`, keeping the folder layout: `STEAM/` and `EA/` under `cap30/`, with `tenants.csv` and `edge_cases.csv` at the top level.
 3. Create IAM role `capstone-snowflake-role` with policy `capstone-snowflake-s3-read` (`s3:ListBucket` and `s3:GetObject` on this bucket only).
 
 Note: org RCP/SCP policies in the accounts used for this project block cross-account `sts:AssumeRole` from Snowflake. The storage integration was therefore replaced with an IAM user (`capstone-snowflake-user`) whose access keys are supplied in the stage via `CREDENTIALS`. This is a workaround, not the preferred method; the integration design is retained in the repo and in the Task 10 limitations.
@@ -51,19 +55,19 @@ Run as ACCOUNTADMIN in a Snowflake worksheet.
 
 `sql/03-setup.sql` creates warehouse `CAPSTONE_WH` (X-Small, auto-suspend 60s, auto-resume), database `CAPSTONE_DB`, schemas `TENANT_DATA` and `ANALYTICS`, all 9 tables, and file format `CAPSTONE_CSV_FORMAT`.
 
-`sql/03-load.sql` creates the stage, lists it, loads each CSV with `COPY INTO` (`ON_ERROR = 'ABORT_STATEMENT'`), then runs count checks, revenue check, orphan checks, and ingestion log inserts.
+`sql/03-load.sql` creates the stage, lists it, empties the tables with `TRUNCATE` so the script is re-runnable, loads each per-tenant CSV with `COPY INTO` (one COPY per tenant per table, 9 COPYs total, `ON_ERROR = 'ABORT_STATEMENT'`), then runs count checks, revenue check, orphan checks, and ingestion log inserts. If the TENANT copy ever loads 0 rows, re-run that one COPY on its own.
 
 Verification criteria:
 
 - Counts: 2 / 40 / 24 / 400 / 837
 - Revenue: STEAM 656,950.40, EA 854,522.10
 - Orphan checks: 0, 0, 0
-- `INGESTION_LOG`: 6 rows (5 LOADED, 1 REJECTED)
+- `INGESTION_LOG`: 10 rows (9 LOADED, 1 REJECTED)
 - `INGESTION_ERRORS`: 3 rows
 
 ## Done when
 
-- 5 CSVs in S3 under `cap30/`
+- 10 files in S3: 8 per-tenant files under `cap30/STEAM/` and `cap30/EA/`, plus `tenants.csv` and `edge_cases.csv` under `cap30/`
 - Table counts match: 2, 40, 24, 400, 837
 - Revenue matches per tenant
 - Orphan checks all 0
