@@ -116,7 +116,7 @@ def main():
     pbi_b_conn = connect(POWERBI_B_USER, POWERBI_B_PASSWORD)
     try:
         rows = execute(admin_conn, "ACCOUNTADMIN", "LIST @" + DATABASE + ".TENANT_DATA.CAPSTONE_STAGE")
-        check("T0 stage lists 5 files", len(rows), 5)
+        check("T0 stage lists 10 files", len(rows), 10)
         rows = execute(admin_conn, "ACCOUNTADMIN", "SELECT COUNT(*) FROM " + DATABASE + ".TENANT_DATA.CUSTOMER")
         check("T0 customers 40", rows[0][0], 40)
         rows = execute(admin_conn, "ACCOUNTADMIN", "SELECT COUNT(*) FROM " + DATABASE + ".TENANT_DATA.ORDERS")
@@ -124,7 +124,7 @@ def main():
         rows = execute(admin_conn, "ACCOUNTADMIN", "SELECT COUNT(*) FROM " + DATABASE + ".TENANT_DATA.ORDER_LINE")
         check("T0 order lines 837", rows[0][0], 837)
         rows = execute(admin_conn, "ACCOUNTADMIN", "SELECT COUNT(*) FROM " + DATABASE + ".TENANT_DATA.INGESTION_LOG")
-        check("T0 ingestion log 6 rows", rows[0][0], 6)
+        check("T0 ingestion log 10 rows", rows[0][0], 10)
 
         rows = execute(a_conn, "TENANT_A_ANALYST", "SELECT COUNT(*) FROM " + DATABASE + ".ANALYTICS.V_CUSTOMER")
         check("T1 A sees 20 customers", rows[0][0], 20)

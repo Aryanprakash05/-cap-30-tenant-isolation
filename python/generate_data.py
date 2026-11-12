@@ -49,12 +49,19 @@ DISCOUNTS = [0, 0, 0, 5, 5, 10, 15]  # most orders have no discount
 
 def write_csv(name, header, rows):
     path = os.path.join(OUT, name)
+    parent = os.path.dirname(path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
     with open(path, "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         w.writerow(header)
         w.writerows(rows)
     print(f"{name}: {len(rows)} rows -> {path}")
     return len(rows)
+
+def write_per_tenant(name, header, rows, tenant_col=0):
+    for tid, _ in TENANTS:
+        write_csv(f"{tid}/{name}", header, [r for r in rows if r[tenant_col] == tid])
 
 # --- tenants ---
 tenant_rows = [[tid, tname, "2025-01-01"] for tid, tname in TENANTS]
@@ -76,7 +83,7 @@ for tid, _ in TENANTS:
         customer_rows.append(row)
         lst.append(cid)
     customers_by_tenant[tid] = lst
-write_csv("customers.csv",
+write_per_tenant("customers.csv",
           ["tenant_id", "customer_id", "customer_name", "city", "region", "segment", "created_at"],
           customer_rows)
 
@@ -90,7 +97,7 @@ for tid, games in [("STEAM", STEAM_GAMES), ("EA", EA_GAMES)]:
         product_rows.append([tid, pid, name, cat, price])
         lst.append((pid, price))
     products_by_tenant[tid] = lst
-write_csv("products.csv",
+write_per_tenant("products.csv",
           ["tenant_id", "product_id", "product_name", "category", "list_price"],
           product_rows)
 
@@ -108,7 +115,7 @@ for tid, _ in TENANTS:
         order_rows.append([tid, oid, cid, odate.isoformat(), channel])
         lst.append(oid)
     orders_by_tenant[tid] = lst
-write_csv("orders.csv",
+write_per_tenant("orders.csv",
           ["tenant_id", "order_id", "customer_id", "order_date", "sales_channel"],
           order_rows)
 
@@ -125,10 +132,10 @@ for tid, _ in TENANTS:
             disc = random.choice(DISCOUNTS)
             revenue = round(qty * price * (1 - disc / 100), 2)
             line_rows.append([lid, tid, oid, pid, qty, price, disc, revenue])
-write_csv("order_lines.csv",
+write_per_tenant("order_lines.csv",
           ["order_line_id", "tenant_id", "order_id", "product_id",
            "quantity", "unit_price", "discount_pct", "revenue"],
-          line_rows)
+          line_rows, tenant_col=1)
 
 # --- edge cases: 3 bad rows, kept separate so they are never loaded ---
 # 1. missing tenant_id, 2. unknown tenant, 3. duplicate order_line_id + bad date

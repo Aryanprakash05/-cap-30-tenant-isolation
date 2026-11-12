@@ -1,0 +1,21 @@
+tenant_id,customer_id,customer_name,city,region,segment,created_at
+STEAM,STEAM_C001,Pooja Das,Bengaluru,South,Consumer,2025-01-01
+STEAM,STEAM_C002,Divya Patel,Bengaluru,South,Small Business,2025-01-01
+STEAM,STEAM_C003,Aarav Nair,Bengaluru,South,Corporate,2025-01-01
+STEAM,STEAM_C004,Karan Sharma,Pune,West,Consumer,2025-01-01
+STEAM,STEAM_C005,Arjun Reddy,Jaipur,North,Corporate,2025-01-01
+STEAM,STEAM_C006,Ritu Rao,Chennai,South,Consumer,2025-01-01
+STEAM,STEAM_C007,Varun Joshi,Mumbai,West,Small Business,2025-01-01
+STEAM,STEAM_C008,Kavya Mehta,Bengaluru,South,Consumer,2025-01-01
+STEAM,STEAM_C009,Nikhil Khan,Delhi,North,Small Business,2025-01-01
+STEAM,STEAM_C010,Rohan Rao,Chennai,South,Corporate,2025-01-01
+STEAM,STEAM_C011,Priya Nair,Guwahati,East,Corporate,2025-01-01
+STEAM,STEAM_C012,Meera Joshi,Chennai,South,Corporate,2025-01-01
+STEAM,STEAM_C013,Aditya Patel,Chennai,South,Consumer,2025-01-01
+STEAM,STEAM_C014,Vikram Mehta,Mumbai,West,Corporate,2025-01-01
+STEAM,STEAM_C015,Sanjay Khan,Pune,West,Small Business,2025-01-01
+STEAM,STEAM_C016,Nisha Mehta,Guwahati,East,Small Business,2025-01-01
+STEAM,STEAM_C017,Rahul Das,Guwahati,East,Small Business,2025-01-01
+STEAM,STEAM_C018,Sneha Patel,Bengaluru,South,Corporate,2025-01-01
+STEAM,STEAM_C019,Ananya Joshi,Delhi,North,Corporate,2025-01-01
+STEAM,STEAM_C020,Ishita Singh,Delhi,North,Consumer,2025-01-01

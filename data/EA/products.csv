@@ -1,0 +1,13 @@
+tenant_id,product_id,product_name,category,list_price
+EA,EA_P001,Pro Soccer Stars,Sports,2999
+EA,EA_P002,Galaxy Racer,Racing,1499
+EA,EA_P003,Battle Arena X,Action,1999
+EA,EA_P004,Kingdom Builders,Strategy,1799
+EA,EA_P005,Zombie Survival,Action,1299
+EA,EA_P006,Ocean Explorer,Adventure,999
+EA,EA_P007,Mech Warriors,Action,2499
+EA,EA_P008,Fantasy League,Sports,1999
+EA,EA_P009,Speed Drift,Racing,1199
+EA,EA_P010,Alien Invasion,Action,1499
+EA,EA_P011,Treasure Hunt,Adventure,999
+EA,EA_P012,Cyber City,RPG,1799

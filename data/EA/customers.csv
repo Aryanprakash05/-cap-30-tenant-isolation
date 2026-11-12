@@ -1,0 +1,21 @@
+tenant_id,customer_id,customer_name,city,region,segment,created_at
+EA,EA_C001,Varun Khan,Kolkata,East,Corporate,2025-01-01
+EA,EA_C002,Divya Das,Mumbai,West,Corporate,2025-01-01
+EA,EA_C003,Kavya Iyer,Guwahati,East,Corporate,2025-01-01
+EA,EA_C004,Meera Chopra,Mumbai,West,Consumer,2025-01-01
+EA,EA_C005,Karan Iyer,Guwahati,East,Corporate,2025-01-01
+EA,EA_C006,Ritu Khan,Chennai,South,Small Business,2025-01-01
+EA,EA_C007,Ananya Das,Guwahati,East,Corporate,2025-01-01
+EA,EA_C008,Nisha Gupta,Delhi,North,Consumer,2025-01-01
+EA,EA_C009,Ishita Sharma,Kolkata,East,Corporate,2025-01-01
+EA,EA_C010,Sanjay Chopra,Pune,West,Corporate,2025-01-01
+EA,EA_C011,Vikram Reddy,Chennai,South,Consumer,2025-01-01
+EA,EA_C012,Arjun Patel,Jaipur,North,Small Business,2025-01-01
+EA,EA_C013,Rahul Rao,Guwahati,East,Consumer,2025-01-01
+EA,EA_C014,Pooja Gupta,Delhi,North,Small Business,2025-01-01
+EA,EA_C015,Aditya Das,Pune,West,Small Business,2025-01-01
+EA,EA_C016,Sneha Sharma,Jaipur,North,Small Business,2025-01-01
+EA,EA_C017,Rohan Joshi,Bengaluru,South,Corporate,2025-01-01
+EA,EA_C018,Nikhil Das,Mumbai,West,Small Business,2025-01-01
+EA,EA_C019,Priya Khan,Chennai,South,Consumer,2025-01-01
+EA,EA_C020,Aarav Menon,Guwahati,East,Small Business,2025-01-01

@@ -1,0 +1,13 @@
+tenant_id,product_id,product_name,category,list_price
+STEAM,STEAM_P001,Star Forge,Action,1499
+STEAM,STEAM_P002,Neon Harbor,Adventure,999
+STEAM,STEAM_P003,Castle of Echoes,RPG,1999
+STEAM,STEAM_P004,Pixel Quest,Adventure,499
+STEAM,STEAM_P005,Deep Space Miner,Strategy,1299
+STEAM,STEAM_P006,Shadow Circuit,Action,1499
+STEAM,STEAM_P007,Frost Valley,RPG,1799
+STEAM,STEAM_P008,Turbo Kart Legends,Racing,999
+STEAM,STEAM_P009,Mystic Isles,Adventure,1199
+STEAM,STEAM_P010,Robot Uprising,Action,1999
+STEAM,STEAM_P011,Sky Pirates,Adventure,1499
+STEAM,STEAM_P012,Dungeon Crawl,RPG,999
