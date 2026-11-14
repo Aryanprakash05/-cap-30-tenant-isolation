@@ -1,44 +1,11 @@
-/* Sign-in screen.
- * Left: the product story — a tenant-boundary diagram (two sealed vaults on
- * one shared warehouse) and three plain-language value points. The decorative
- * orb is gone: it said nothing about the product.
- * Right: a plain sign-in form. The company is chosen with a segmented
- * control (Steam / EA) that fills both fields, so there is no pick-a-card
- * menu. Staff sign-in is a quiet link under the form, never a peer tile:
- * it opens a staff notice with a way back. Demo accounts are one quiet
- * footer line, not a panel. Passwords are filled, never shown as text.
- * Real deployments use SSO.
- */
+/* Sign-in uses organization-provisioned credentials. The server determines
+ * the caller's role and tenant from the authenticated session. */
 import { useState } from 'react'
 import {
-  Database, Eye, EyeOff, FileText, FlaskConical,
-  KeyRound, Shield, ShieldCheck, UserCog,
+  Database, Eye, EyeOff, FileText, FlaskConical, KeyRound, Shield,
+  ShieldCheck,
 } from 'lucide-react'
 import { apiLogin } from '../api'
-
-/* Demo-only credentials. They exist so an evaluator can sign in with one
- * click; they are not real authentication and are never rendered as text.
- * The same values are the demo identities in the backend's AuthService. */
-const PRINCIPALS = [
-  {
-    key: 'steam', role: 'TENANT_A_ANALYST', tenant: 'STEAM',
-    name: 'Steam Valve Corporation', short: 'Steam', initials: 'SV',
-    accent: 'steam', username: 'steam_analyst', password: 'SteamVault@2024',
-    blurb: 'Valves and flow-control equipment',
-  },
-  {
-    key: 'ea', role: 'TENANT_B_ANALYST', tenant: 'EA',
-    name: 'Electronic Arts', short: 'EA', initials: 'EA',
-    accent: 'ea', username: 'ea_analyst', password: 'EAVault@2024',
-    blurb: 'Games and interactive entertainment',
-  },
-  {
-    key: 'support', role: 'CAPSTONE_SUPPORT', tenant: 'ALL',
-    name: 'Platform Support', short: 'Support', initials: 'SU',
-    accent: 'support', username: 'support_user', password: 'SupportVault@2024',
-    blurb: 'DataVault staff — time-limited, audited access',
-  },
-]
 
 const VALUE_POINTS = [
   {
@@ -59,11 +26,12 @@ const VALUE_POINTS = [
 function BoundaryDiagram() {
   return (
     <svg viewBox="0 0 560 250" className="boundary-diagram" role="img"
-      aria-label="Diagram: two separate customer vaults, Steam Valve Corporation and Electronic Arts, on one shared Snowflake warehouse, with a barrier between them.">
+      aria-label="Diagram: two separate tenant vaults on one shared Snowflake warehouse, with a barrier between them.">
+      <rect x="8" y="8" width="544" height="234" rx="18" className="diagram-plate" />
       {/* shared warehouse base */}
       <rect x="20" y="196" width="520" height="40" rx="10" className="diagram-base" />
       <text x="280" y="221" textAnchor="middle" className="diagram-base-text">
-        One shared Snowflake warehouse — CAPSTONE_WH
+        One shared Snowflake warehouse
       </text>
       {/* connectors from each vault down to the base */}
       <line x1="140" y1="168" x2="140" y2="196" className="diagram-link" />
@@ -72,17 +40,17 @@ function BoundaryDiagram() {
       <g>
         <rect x="40" y="48" width="200" height="120" rx="14" className="diagram-vault diagram-vault-steam" />
         <circle cx="140" cy="88" r="22" className="diagram-vault-disc diagram-vault-disc-steam" />
-        <text x="140" y="96" textAnchor="middle" className="diagram-vault-initials">SV</text>
-        <text x="140" y="136" textAnchor="middle" className="diagram-vault-name">Steam Valve Corporation</text>
-        <text x="140" y="155" textAnchor="middle" className="diagram-vault-id">STEAM · 20 customers · 200 orders</text>
+        <text x="140" y="96" textAnchor="middle" className="diagram-vault-initials">A</text>
+        <text x="140" y="136" textAnchor="middle" className="diagram-vault-name">Tenant A</text>
+        <text x="140" y="155" textAnchor="middle" className="diagram-vault-id">Isolated customer data</text>
       </g>
       {/* EA vault */}
       <g>
         <rect x="320" y="48" width="200" height="120" rx="14" className="diagram-vault diagram-vault-ea" />
         <circle cx="420" cy="88" r="22" className="diagram-vault-disc diagram-vault-disc-ea" />
-        <text x="420" y="96" textAnchor="middle" className="diagram-vault-initials">EA</text>
-        <text x="420" y="136" textAnchor="middle" className="diagram-vault-name">Electronic Arts</text>
-        <text x="420" y="155" textAnchor="middle" className="diagram-vault-id">EA · 20 customers · 200 orders</text>
+        <text x="420" y="96" textAnchor="middle" className="diagram-vault-initials">B</text>
+        <text x="420" y="136" textAnchor="middle" className="diagram-vault-name">Tenant B</text>
+        <text x="420" y="155" textAnchor="middle" className="diagram-vault-id">Isolated customer data</text>
       </g>
       {/* barrier wall between the vaults */}
       <g>
@@ -98,23 +66,11 @@ function BoundaryDiagram() {
 }
 
 export default function SignIn({ onLogin }) {
-  const [selected, setSelected] = useState(PRINCIPALS[0])
-  const [username, setUsername] = useState(PRINCIPALS[0].username)
-  const [password, setPassword] = useState(PRINCIPALS[0].password)
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState(null)
   const [busy, setBusy] = useState(false)
-
-  const isStaff = selected.key === 'support'
-
-  /* Choosing a company fills both fields, password included and masked —
-   * that is the one-click demo sign-in. Passwords are never rendered. */
-  function pick(p) {
-    setSelected(p)
-    setUsername(p.username)
-    setPassword(p.password)
-    setError(null)
-  }
 
   async function submit(e) {
     e.preventDefault()
@@ -168,37 +124,6 @@ export default function SignIn({ onLogin }) {
           <h2 className="login-title">Sign in to DataVault</h2>
           <p className="login-caption">Your workspace is scoped to your company at sign-in.</p>
 
-          {isStaff ? (
-            <>
-              <div className="staff-notice">
-                <UserCog size={16} className="staff-icon" />
-                <div>
-                  <div className="staff-name">Staff sign-in — Platform Support</div>
-                  <div className="staff-note">Staff access is time-limited and audited. Support is not a customer.</div>
-                </div>
-              </div>
-              <button type="button" className="link-btn" onClick={() => pick(PRINCIPALS[0])}>
-                ← Back to tenant sign-in
-              </button>
-            </>
-          ) : (
-            <>
-              <div className="segmented" role="group" aria-label="Choose your company">
-                {PRINCIPALS.filter((p) => p.key !== 'support').map((p) => (
-                  <button
-                    key={p.key}
-                    type="button"
-                    aria-pressed={selected.key === p.key}
-                    onClick={() => pick(p)}
-                  >
-                    {p.name}
-                  </button>
-                ))}
-              </div>
-              <p className="segmented-blurb">{selected.blurb}</p>
-            </>
-          )}
-
           <div className="form-field">
             <label htmlFor="login-username">Username</label>
             <input
@@ -235,21 +160,8 @@ export default function SignIn({ onLogin }) {
           {error && <div className="form-error" role="alert">{error}</div>}
 
           <button type="submit" className="btn btn-primary btn-block" disabled={busy}>
-            {busy ? 'Signing in…' : (<><KeyRound size={15} /> Sign in{isStaff ? ' as staff' : ''}</>)}
+            {busy ? 'Signing in…' : (<><KeyRound size={15} /> Sign in</>)}
           </button>
-
-          {!isStaff && (
-            <div className="staff-link-row">
-              <button type="button" className="link-btn" onClick={() => pick(PRINCIPALS[2])}>
-                <UserCog size={14} /> Platform Support staff? Sign in as staff
-              </button>
-            </div>
-          )}
-
-          <p className="demo-note">
-            Demo accounts (evaluation only) — steam_analyst · ea_analyst · support_user.
-            Choosing a company fills the password, never shown. Real deployments use SSO.
-          </p>
 
           <p className="login-foot">
             <Shield size={13} /> Isolation is enforced by Snowflake secure views and roles — see Security &amp; Evidence after signing in.
