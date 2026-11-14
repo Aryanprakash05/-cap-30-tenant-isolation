@@ -6,6 +6,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.sql.CallableStatement;
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -287,11 +289,34 @@ public class SnowflakeService {
         return conn;
     }
 
+    // An env var that is set but empty must not produce an invalid JDBC URL:
+    // Spring's ${VAR:default} only applies when the variable is unset, so a
+    // blank value reaches the driver and every data call fails with
+    // "Connection string is invalid". Fall back to the known-good defaults.
+    private static String orDefault(String value, String fallback) {
+        return (value == null || value.isBlank()) ? fallback : value;
+    }
+
+    // The driver needs the full regional host, not a bare account locator.
+    // SNOWFLAKE_HOST sometimes arrives as just "FQ39967" (a stale export in
+    // the terminal, or the bare account secret), and the driver rejects that
+    // URL with "Connection string is invalid". Normalise it here.
+    private static String normalizeAccount(String value) {
+        String account = orDefault(value, "FQ39967.ap-southeast-7.aws.snowflakecomputing.com");
+        if (!account.contains(".")) {
+            account = account + ".ap-southeast-7.aws.snowflakecomputing.com";
+        } else if (account.endsWith(".aws")) {
+            account = account + ".snowflakecomputing.com";
+        }
+        return account;
+    }
+
     private String buildUrl() {
-        return "jdbc:snowflake://" + account
-                + "/?warehouse=" + warehouse
-                + "&db=" + database
-                + "&schema=" + schema;
+        String url = "jdbc:snowflake://" + normalizeAccount(account)
+                + "/?warehouse=" + orDefault(warehouse, "CAPSTONE_WH")
+                + "&db=" + orDefault(database, "CAPSTONE_DB")
+                + "&schema=" + orDefault(schema, "ANALYTICS");
+        return url;
     }
 
     /**
@@ -579,10 +604,207 @@ public class SnowflakeService {
                     out.put("topProducts", rows);
                 }
             }
+
+            String regionSql = "SELECT c.REGION AS region, SUM(l.REVENUE) AS revenue, "
+                    + "COUNT(DISTINCT l.ORDER_ID) AS orders, COUNT(DISTINCT c.CUSTOMER_ID) AS customers "
+                    + "FROM ANALYTICS.V_ORDER_LINE l "
+                    + "JOIN ANALYTICS.V_ORDERS o ON o.TENANT_ID = l.TENANT_ID AND o.ORDER_ID = l.ORDER_ID "
+                    + "JOIN ANALYTICS.V_CUSTOMER c ON c.TENANT_ID = o.TENANT_ID AND c.CUSTOMER_ID = o.CUSTOMER_ID "
+                    + "WHERE l.TENANT_ID = ? GROUP BY c.REGION ORDER BY revenue DESC";
+            try (PreparedStatement stmt = conn.prepareStatement(regionSql)) {
+                stmt.setString(1, tenant);
+                try (ResultSet rs = stmt.executeQuery()) {
+                    List<Map<String, Object>> rows = new ArrayList<>();
+                    while (rs.next()) {
+                        rows.add(Map.of(
+                                "region", rs.getString("REGION"),
+                                "revenue", rs.getBigDecimal("REVENUE"),
+                                "orders", rs.getInt("ORDERS"),
+                                "customers", rs.getInt("CUSTOMERS")));
+                    }
+                    out.put("byRegion", rows);
+                }
+            }
+
+            String segmentSql = "SELECT c.SEGMENT AS segment, SUM(l.REVENUE) AS revenue, "
+                    + "COUNT(DISTINCT l.ORDER_ID) AS orders, COUNT(DISTINCT c.CUSTOMER_ID) AS customers "
+                    + "FROM ANALYTICS.V_ORDER_LINE l "
+                    + "JOIN ANALYTICS.V_ORDERS o ON o.TENANT_ID = l.TENANT_ID AND o.ORDER_ID = l.ORDER_ID "
+                    + "JOIN ANALYTICS.V_CUSTOMER c ON c.TENANT_ID = o.TENANT_ID AND c.CUSTOMER_ID = o.CUSTOMER_ID "
+                    + "WHERE l.TENANT_ID = ? GROUP BY c.SEGMENT ORDER BY revenue DESC";
+            try (PreparedStatement stmt = conn.prepareStatement(segmentSql)) {
+                stmt.setString(1, tenant);
+                try (ResultSet rs = stmt.executeQuery()) {
+                    List<Map<String, Object>> rows = new ArrayList<>();
+                    while (rs.next()) {
+                        rows.add(Map.of(
+                                "segment", rs.getString("SEGMENT"),
+                                "revenue", rs.getBigDecimal("REVENUE"),
+                                "orders", rs.getInt("ORDERS"),
+                                "customers", rs.getInt("CUSTOMERS")));
+                    }
+                    out.put("bySegment", rows);
+                }
+            }
+
+            String citySql = "SELECT c.CITY AS city, SUM(l.REVENUE) AS revenue, "
+                    + "COUNT(DISTINCT l.ORDER_ID) AS orders, COUNT(DISTINCT c.CUSTOMER_ID) AS customers "
+                    + "FROM ANALYTICS.V_ORDER_LINE l "
+                    + "JOIN ANALYTICS.V_ORDERS o ON o.TENANT_ID = l.TENANT_ID AND o.ORDER_ID = l.ORDER_ID "
+                    + "JOIN ANALYTICS.V_CUSTOMER c ON c.TENANT_ID = o.TENANT_ID AND c.CUSTOMER_ID = o.CUSTOMER_ID "
+                    + "WHERE l.TENANT_ID = ? GROUP BY c.CITY ORDER BY revenue DESC LIMIT 10";
+            try (PreparedStatement stmt = conn.prepareStatement(citySql)) {
+                stmt.setString(1, tenant);
+                try (ResultSet rs = stmt.executeQuery()) {
+                    List<Map<String, Object>> rows = new ArrayList<>();
+                    while (rs.next()) {
+                        rows.add(Map.of(
+                                "city", rs.getString("CITY"),
+                                "revenue", rs.getBigDecimal("REVENUE"),
+                                "orders", rs.getInt("ORDERS"),
+                                "customers", rs.getInt("CUSTOMERS")));
+                    }
+                    out.put("byCity", rows);
+                }
+            }
+
+            String discountSql = "SELECT SUM(l.QUANTITY * l.UNIT_PRICE) AS gross, SUM(l.REVENUE) AS net "
+                    + "FROM ANALYTICS.V_ORDER_LINE l WHERE l.TENANT_ID = ?";
+            try (PreparedStatement stmt = conn.prepareStatement(discountSql)) {
+                stmt.setString(1, tenant);
+                try (ResultSet rs = stmt.executeQuery()) {
+                    if (rs.next()) {
+                        BigDecimal gross = rs.getBigDecimal("GROSS");
+                        BigDecimal net = rs.getBigDecimal("NET");
+                        if (gross == null) gross = BigDecimal.ZERO;
+                        if (net == null) net = BigDecimal.ZERO;
+                        BigDecimal discountAmount = gross.subtract(net);
+                        BigDecimal avgDiscountPct = gross.compareTo(BigDecimal.ZERO) > 0
+                                ? discountAmount.multiply(new BigDecimal("100"))
+                                        .divide(gross, 2, RoundingMode.HALF_UP)
+                                : BigDecimal.ZERO;
+                        Map<String, Object> discount = new LinkedHashMap<>();
+                        discount.put("grossRevenue", gross);
+                        discount.put("netRevenue", net);
+                        discount.put("discountAmount", discountAmount);
+                        discount.put("avgDiscountPct", avgDiscountPct);
+                        out.put("discount", discount);
+                    }
+                }
+            }
             return out;
         } catch (SQLException e) {
             handleSqlException(e);
             return Map.of(); // unreachable
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Customer and product directories
+    // -------------------------------------------------------------------------
+
+    /**
+     * Every customer of one tenant with lifetime orders, spend and average
+     * order value. Support sees masked names, same as the summary.
+     */
+    public List<Map<String, Object>> getCustomers(String role, String requestedTenant)
+            throws SQLException {
+        try (Connection conn = connect(role)) {
+            String tenant = resolveTenant(conn, role, requestedTenant);
+            log.debug("getCustomers role={} tenant={}", role, tenant);
+            boolean support = "CAPSTONE_SUPPORT".equalsIgnoreCase(role);
+            String customerNameExpr = support
+                    ? "LEFT(c.CUSTOMER_NAME, 1) || '*** [REDACTED PII]'"
+                    : "c.CUSTOMER_NAME";
+            String sql = "SELECT c.CUSTOMER_ID, " + customerNameExpr + " AS customer_name, "
+                    + "c.CITY, c.REGION, c.SEGMENT, c.CREATED_AT, "
+                    + "COUNT(DISTINCT o.ORDER_ID) AS orders, COALESCE(SUM(l.REVENUE), 0) AS revenue "
+                    + "FROM ANALYTICS.V_CUSTOMER c "
+                    + "LEFT JOIN ANALYTICS.V_ORDERS o ON o.TENANT_ID = c.TENANT_ID AND o.CUSTOMER_ID = c.CUSTOMER_ID "
+                    + "LEFT JOIN ANALYTICS.V_ORDER_LINE l ON l.TENANT_ID = o.TENANT_ID AND l.ORDER_ID = o.ORDER_ID "
+                    + "WHERE c.TENANT_ID = ? "
+                    + "GROUP BY c.CUSTOMER_ID, c.CUSTOMER_NAME, c.CITY, c.REGION, c.SEGMENT, c.CREATED_AT "
+                    + "ORDER BY revenue DESC";
+            try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+                stmt.setString(1, tenant);
+                try (ResultSet rs = stmt.executeQuery()) {
+                    captureQueryId(stmt);
+                    List<Map<String, Object>> rows = new ArrayList<>();
+                    while (rs.next()) {
+                        int orders = rs.getInt("ORDERS");
+                        BigDecimal revenue = rs.getBigDecimal("REVENUE");
+                        if (revenue == null) revenue = BigDecimal.ZERO;
+                        BigDecimal avgOrderValue = orders > 0
+                                ? revenue.divide(BigDecimal.valueOf(orders), 2, RoundingMode.HALF_UP)
+                                : BigDecimal.ZERO;
+                        Map<String, Object> row = new LinkedHashMap<>();
+                        row.put("customerId", rs.getString("CUSTOMER_ID"));
+                        row.put("customerName", rs.getString("CUSTOMER_NAME"));
+                        row.put("city", rs.getString("CITY"));
+                        row.put("region", rs.getString("REGION"));
+                        row.put("segment", rs.getString("SEGMENT"));
+                        row.put("createdAt", rs.getString("CREATED_AT"));
+                        row.put("orders", orders);
+                        row.put("totalRevenue", revenue);
+                        row.put("avgOrderValue", avgOrderValue);
+                        rows.add(row);
+                    }
+                    return rows;
+                }
+            }
+        } catch (SQLException e) {
+            handleSqlException(e);
+            return List.of(); // unreachable
+        }
+    }
+
+    /**
+     * Every product of one tenant with units sold, revenue and the
+     * realised discount against list price.
+     */
+    public List<Map<String, Object>> getProducts(String role, String requestedTenant)
+            throws SQLException {
+        try (Connection conn = connect(role)) {
+            String tenant = resolveTenant(conn, role, requestedTenant);
+            log.debug("getProducts role={} tenant={}", role, tenant);
+            String sql = "SELECT p.PRODUCT_ID, p.PRODUCT_NAME, p.CATEGORY, p.LIST_PRICE, "
+                    + "COALESCE(SUM(l.QUANTITY), 0) AS units, COALESCE(SUM(l.REVENUE), 0) AS revenue, "
+                    + "COALESCE(SUM(l.QUANTITY * l.UNIT_PRICE), 0) AS gross "
+                    + "FROM ANALYTICS.V_PRODUCT p "
+                    + "LEFT JOIN ANALYTICS.V_ORDER_LINE l ON l.TENANT_ID = p.TENANT_ID AND l.PRODUCT_ID = p.PRODUCT_ID "
+                    + "WHERE p.TENANT_ID = ? "
+                    + "GROUP BY p.PRODUCT_ID, p.PRODUCT_NAME, p.CATEGORY, p.LIST_PRICE "
+                    + "ORDER BY revenue DESC";
+            try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+                stmt.setString(1, tenant);
+                try (ResultSet rs = stmt.executeQuery()) {
+                    captureQueryId(stmt);
+                    List<Map<String, Object>> rows = new ArrayList<>();
+                    while (rs.next()) {
+                        BigDecimal gross = rs.getBigDecimal("GROSS");
+                        BigDecimal revenue = rs.getBigDecimal("REVENUE");
+                        if (gross == null) gross = BigDecimal.ZERO;
+                        if (revenue == null) revenue = BigDecimal.ZERO;
+                        BigDecimal avgDiscountPct = gross.compareTo(BigDecimal.ZERO) > 0
+                                ? gross.subtract(revenue).multiply(new BigDecimal("100"))
+                                        .divide(gross, 2, RoundingMode.HALF_UP)
+                                : BigDecimal.ZERO;
+                        Map<String, Object> row = new LinkedHashMap<>();
+                        row.put("productId", rs.getString("PRODUCT_ID"));
+                        row.put("productName", rs.getString("PRODUCT_NAME"));
+                        row.put("category", rs.getString("CATEGORY"));
+                        row.put("listPrice", rs.getBigDecimal("LIST_PRICE"));
+                        row.put("units", rs.getInt("UNITS"));
+                        row.put("revenue", revenue);
+                        row.put("avgDiscountPct", avgDiscountPct);
+                        rows.add(row);
+                    }
+                    return rows;
+                }
+            }
+        } catch (SQLException e) {
+            handleSqlException(e);
+            return List.of(); // unreachable
         }
     }
 
@@ -891,6 +1113,18 @@ public class SnowflakeService {
         }
     }
 
+    /**
+     * True when a SQLException is a denial: 42501 (insufficient privileges),
+     * or 02000 with "not authorized" — Snowflake hides a schema the role has
+     * no USAGE on, so the read fails at compile time (002003) instead.
+     */
+    private boolean isDenied(SQLException e) {
+        if (e.getSQLState() == null) return false;
+        if (e.getSQLState().startsWith("42501")) return true;
+        return e.getSQLState().startsWith("02000")
+                && e.getMessage() != null && e.getMessage().contains("not authorized");
+    }
+
     private Map<String, Object> testBaseTableDenied(String role) {
         String label = role.contains("TENANT_A") ? "A" : "B";
         String id = "base-table-denied-" + label.toLowerCase();
@@ -901,19 +1135,19 @@ public class SnowflakeService {
             stmt = conn.prepareStatement(sql);
             try (ResultSet rs = stmt.executeQuery()) {
                 long n = rs.next() ? rs.getLong(1) : -1;
-                return evidenceResult(id, name, "Denied (SQLState 42501)",
+                return evidenceResult(id, name, "Denied (SQLState 42501 or 02000)",
                         "Read succeeded with " + n + " rows — isolation broken",
                         false, n, 200, null, queryIdOf(stmt));
             }
         } catch (SQLException e) {
             String qid = stmt != null ? queryIdOf(stmt) : null;
-            boolean denied = e.getSQLState() != null && e.getSQLState().startsWith("42501");
-            return evidenceResult(id, name, "Denied (SQLState 42501)",
+            boolean denied = isDenied(e);
+            return evidenceResult(id, name, "Denied (SQLState 42501 or 02000)",
                     denied ? "Denied: " + trimMsg(e.getMessage())
                             : "Unexpected error: " + trimMsg(e.getMessage()),
                     denied, null, denied ? 403 : 500, e.getSQLState(), qid);
         } catch (Exception e) {
-            return evidenceResult(id, name, "Denied (SQLState 42501)",
+            return evidenceResult(id, name, "Denied (SQLState 42501 or 02000)",
                     "Error: " + trimMsg(e.getMessage()), false, null, null, null, null);
         } finally {
             if (stmt != null) {

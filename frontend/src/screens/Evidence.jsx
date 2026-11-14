@@ -15,9 +15,9 @@ const OTHER_TENANT = { STEAM: 'EA', EA: 'STEAM' }
 const TENANT_NAME = { STEAM: 'Steam Valve Corporation', EA: 'Electronic Arts' }
 
 const RUNNER_ENDPOINTS = [
-  { value: '/api/kpis', label: '/api/kpis', sql: (t) => `SELECT * FROM ANALYTICS.V_KPIS WHERE TENANT_ID = '${t}';` },
-  { value: '/api/orders', label: '/api/orders', sql: (t) => `SELECT * FROM ANALYTICS.V_ORDERS WHERE TENANT_ID = '${t}' ORDER BY ORDER_DATE DESC LIMIT 100;` },
-  { value: '/api/analytics/summary', label: '/api/analytics/summary', sql: (t) => `SELECT * FROM ANALYTICS.V_KPIS WHERE TENANT_ID = '${t}';  -- summary is built from V_ORDER_LINE + V_ORDERS + V_PRODUCT` },
+  { value: '/kpis', label: '/api/kpis', sql: (t) => `SELECT * FROM ANALYTICS.V_KPIS WHERE TENANT_ID = '${t}';` },
+  { value: '/orders', label: '/api/orders', sql: (t) => `SELECT * FROM ANALYTICS.V_ORDERS WHERE TENANT_ID = '${t}' ORDER BY ORDER_DATE DESC LIMIT 100;` },
+  { value: '/analytics/summary', label: '/api/analytics/summary', sql: (t) => `SELECT * FROM ANALYTICS.V_KPIS WHERE TENANT_ID = '${t}';  -- summary is built from V_ORDER_LINE + V_ORDERS + V_PRODUCT` },
 ]
 
 const REPEATABLE_SQL = [
@@ -239,7 +239,7 @@ function TryToBreakIt({ session, inScope, onSessionExpired }) {
     setBusy(true)
     setAttempt(null)
     const t0 = Date.now()
-    const path = which === 'kpis' ? `/api/kpis?tenant=${target}` : `/api/orders?tenant=${target}`
+    const path = which === 'kpis' ? `/kpis?tenant=${target}` : `/orders?tenant=${target}`
     const r = await apiRequest(session.token, path)
     const ms = Date.now() - t0
     setBusy(false)
@@ -327,7 +327,7 @@ function RequestRunner({ session, inScope, onSessionExpired }) {
   }
 
   const ep = RUNNER_ENDPOINTS.find((e) => e.value === endpoint)
-  const curl = `curl -H "Authorization: Bearer <session-token>" \\\n  "http://localhost:8080${endpoint}?tenant=${tenant}"`
+  const curl = `curl -H "Authorization: Bearer <session-token>" \\\n  "http://localhost:8080${ep.label}?tenant=${tenant}"`
 
   return (
     <SectionCard title="Request runner">
