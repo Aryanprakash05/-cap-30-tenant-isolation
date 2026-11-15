@@ -167,4 +167,4 @@ README.md
 | 7. Usage monitoring | Done |
 | 8. Power BI layer + application layer | Done |
 | 9. Repeatability and CI | Done |
-| 10. Documentation and defense | Done — documentation; viva defense to follow |
+| 10. Documentation and defense | Done — documentation|
