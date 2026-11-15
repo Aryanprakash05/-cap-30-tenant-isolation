@@ -7,8 +7,8 @@
  */
 import { useEffect, useMemo, useState } from 'react'
 import { ChevronDown, ChevronLeft, ChevronRight, Search } from 'lucide-react'
-import { apiRequest, fmtINR } from '../api'
-import { EmptyState, ErrorState, Skeleton, StatusChip } from './ui'
+import { apiRequest, fmtINR, fmtNum } from '../api'
+import { Drawer, EmptyState, ErrorState, Skeleton, StatusChip } from './ui'
 
 const CHANNELS = ['All', 'Online', 'Retail Store', 'Partner']
 const PAGE_SIZE = 10
@@ -28,6 +28,8 @@ export default function OrdersExplorer({ token, tenant, onSessionExpired }) {
   const [expanded, setExpanded] = useState(null)
   const [lines, setLines] = useState({})
   const [linesLoading, setLinesLoading] = useState({})
+  const [detailError, setDetailError] = useState(null)
+  const selectedOrder = orders?.find((o) => o.orderId === expanded)
 
   const query = tenant ? `?tenant=${encodeURIComponent(tenant)}` : ''
 
@@ -45,14 +47,21 @@ export default function OrdersExplorer({ token, tenant, onSessionExpired }) {
   async function toggleExpand(orderId) {
     if (expanded === orderId) { setExpanded(null); return }
     setExpanded(orderId)
+    setDetailError(null)
     if (lines[orderId]) return
+    await loadOrderDetails(orderId)
+  }
+
+  async function loadOrderDetails(orderId) {
+    setDetailError(null)
     setLinesLoading((m) => ({ ...m, [orderId]: true }))
     const r = await apiRequest(token, `/orders/${encodeURIComponent(orderId)}${query}`)
     setLinesLoading((m) => ({ ...m, [orderId]: false }))
     if (r.status === 401) { onSessionExpired(); return }
     if (r.ok && r.data && Array.isArray(r.data.lines)) {
-      setLines((m) => ({ ...m, [orderId]: r.data.lines }))
-    }
+      setLines((m) => ({ ...m, [orderId]: { ...r.data, lines: r.data.lines } }))
+    } else if (r.status === 403) setDetailError('This order is outside the data currently available to your account. No warehouse query was issued.')
+    else setDetailError(r.error || 'Order details could not be loaded. Retry the order.')
   }
 
   const filtered = useMemo(() => {
@@ -127,7 +136,7 @@ export default function OrdersExplorer({ token, tenant, onSessionExpired }) {
                   key={o.orderId}
                   order={o}
                   expanded={expanded === o.orderId}
-                  lines={lines[o.orderId]}
+                  lines={lines[o.orderId]?.lines || lines[o.orderId]}
                   linesLoading={!!linesLoading[o.orderId]}
                   onToggle={() => toggleExpand(o.orderId)}
                 />
@@ -150,13 +159,23 @@ export default function OrdersExplorer({ token, tenant, onSessionExpired }) {
           </div>
         </div>
       )}
+      <Drawer open={!!expanded} onClose={() => setExpanded(null)} title={selectedOrder ? `Order ${selectedOrder.orderId}` : 'Order details'}>
+        {selectedOrder && <div className="order-drawer-meta"><span>Customer <strong>{selectedOrder.customerId}</strong></span><span>{selectedOrder.orderDate}</span><StatusChip tone="neutral">{selectedOrder.salesChannel}</StatusChip></div>}
+        {detailError && <ErrorState title="Order details unavailable" body={detailError} onRetry={() => expanded && loadOrderDetails(expanded)} />}
+        {expanded && linesLoading[expanded] && <><Skeleton className="sk-line"/><Skeleton className="sk-line"/></>}
+        {expanded && !linesLoading[expanded] && !detailError && !lines[expanded] && <EmptyState title="No line items" body="This order has no line items."/>}
+        {expanded && !linesLoading[expanded] && lines[expanded] && <>
+          {(lines[expanded].lines || lines[expanded]).length === 0 ? <EmptyState title="No line items" body="This order has no line items."/> : <div className="table-wrap"><table className="data-table lines-table"><thead><tr><th>Product</th><th>Category</th><th className="num">Quantity</th><th className="num">Unit price</th><th className="num">Discount</th><th className="num">Line sales</th></tr></thead><tbody>
+            {(lines[expanded].lines || lines[expanded]).map(l=><tr key={l.orderLineId}><td>{l.productName || l.productId}</td><td>{l.category}</td><td className="num">{fmtNum(l.quantity)}</td><td className="num">{fmtINR(l.unitPrice)}</td><td className="num">{Number(l.discountPct || 0).toFixed(2)}%</td><td className="num">{fmtINR(l.revenue)}</td></tr>)}
+          </tbody><tfoot><tr><th colSpan="5">Order total</th><th className="num">{fmtINR((lines[expanded].lines || lines[expanded]).reduce((sum,l)=>sum+(Number(l.revenue)||0),0))}</th></tr></tfoot></table></div>}
+        </>}
+      </Drawer>
     </div>
   )
 }
 
 function OrdersRow({ order, expanded, lines, linesLoading, onToggle }) {
   return (
-    <>
       <tr className={`order-row ${expanded ? 'order-row-open' : ''}`} onClick={onToggle} tabIndex={0}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle() } }}>
         <td className="mono">{order.orderId}</td>
@@ -165,35 +184,5 @@ function OrdersRow({ order, expanded, lines, linesLoading, onToggle }) {
         <td><StatusChip tone={channelTone(order.salesChannel)}>{order.salesChannel}</StatusChip></td>
         <td className="expand-cell">{expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}</td>
       </tr>
-      {expanded && (
-        <tr className="order-detail-row">
-          <td colSpan={5}>
-            {linesLoading && <Skeleton className="sk-line" />}
-            {!linesLoading && (!lines || lines.length === 0) && (
-              <EmptyState title="No lines for this order" body="The order has no line items in the warehouse." />
-            )}
-            {!linesLoading && lines && lines.length > 0 && (
-              <table className="data-table lines-table">
-                <thead>
-                  <tr><th>Product</th><th>Category</th><th className="num">Qty</th><th className="num">Unit price</th><th className="num">Discount</th><th className="num">Revenue</th></tr>
-                </thead>
-                <tbody>
-                  {lines.map((l) => (
-                    <tr key={l.orderLineId}>
-                      <td>{l.productName || l.productId}<div className="mono muted">{l.productId}</div></td>
-                      <td>{l.category || '—'}</td>
-                      <td className="num tabular">{l.quantity}</td>
-                      <td className="num tabular">{fmtINR(l.unitPrice)}</td>
-                      <td className="num tabular">{l.discountPct ? `${l.discountPct}%` : '—'}</td>
-                      <td className="num tabular">{fmtINR(l.revenue)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </td>
-        </tr>
-      )}
-    </>
   )
 }

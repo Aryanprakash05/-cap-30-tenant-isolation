@@ -186,6 +186,42 @@ public class ApiController {
         }
     }
 
+    @GetMapping("/customers")
+    public ResponseEntity<?> getCustomers(HttpServletRequest request,
+            @RequestParam(required = false) String tenant) {
+        String role = resolveRole(request);
+        if (role == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Authentication required"));
+        }
+        try {
+            return withQueryId(snowflakeService.getCustomers(role, tenant));
+        } catch (AccessDeniedException e) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", e.getMessage()));
+        } catch (IllegalArgumentException e) {
+            return badRequest(e.getMessage());
+        } catch (SQLException e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    @GetMapping("/products")
+    public ResponseEntity<?> getProducts(HttpServletRequest request,
+            @RequestParam(required = false) String tenant) {
+        String role = resolveRole(request);
+        if (role == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Authentication required"));
+        }
+        try {
+            return withQueryId(snowflakeService.getProducts(role, tenant));
+        } catch (AccessDeniedException e) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", e.getMessage()));
+        } catch (IllegalArgumentException e) {
+            return badRequest(e.getMessage());
+        } catch (SQLException e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of("error", e.getMessage()));
+        }
+    }
+
     // -------------------------------------------------------------------------
     // Support Workflow Endpoints
     // -------------------------------------------------------------------------

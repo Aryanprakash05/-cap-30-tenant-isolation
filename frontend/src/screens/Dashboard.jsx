@@ -6,10 +6,10 @@
  */
 import { useEffect, useState } from 'react'
 import { ShieldCheck } from 'lucide-react'
-import { apiRequest, fmtINR, fmtMonth, fmtNum } from '../api'
-import KpiCard from '../components/KpiCard'
-import { BarChart, HBarChart } from '../components/Chart'
+import { apiRequest, fmtINR, fmtNum } from '../api'
+import { HBarChart, MonthlyComboChart } from '../components/Chart'
 import OrdersExplorer from '../components/OrdersExplorer'
+import GradientWaves from '../components/GradientWaves'
 import { Banner, EmptyState, ErrorState, Leaderboard, SectionCard, SkeletonKpis, StatusChip } from '../components/ui'
 
 const TENANT_META = {
@@ -23,7 +23,7 @@ function initials(name) {
 
 export default function Dashboard({ session, lastEvidenceRun, onOpenEvidence, onSessionExpired }) {
   const meta = TENANT_META[session.tenant] || { name: session.tenant, initials: '?', accent: 'ink' }
-  const chartColor = meta.accent === 'steam' ? '#276a3f' : '#d97706'
+  const chartColor = meta.accent === 'steam' ? '#667858' : '#a16f32'
   const [kpis, setKpis] = useState(null)
   const [kpisError, setKpisError] = useState(null)
   const [summary, setSummary] = useState(null)
@@ -54,17 +54,15 @@ export default function Dashboard({ session, lastEvidenceRun, onOpenEvidence, on
       : <StatusChip tone="success"><ShieldCheck size={13} /> Data isolation: verified</StatusChip>
 
   const monthly = summary ? (summary.monthly || []) : []
-  const monthlyRevenue = monthly.map((m) => Number(m.revenue) || 0)
-  const monthlyOrders = monthly.map((m) => Number(m.orders) || 0)
 
   return (
     <div className="page">
-      <header className="page-head">
+      <header className="page-head workspace-head">
         <div className="page-head-left">
           <span className={`principal-avatar avatar-${meta.accent} avatar-lg`}>{meta.initials}</span>
-          <h1 className="page-title">{meta.name}</h1>
+          <div><div className="eyebrow">TENANT ANALYTICS <span>·</span> FY 2025</div><h1 className="page-title">{meta.name}</h1></div>
         </div>
-        <button type="button" className="evidence-chip-btn" onClick={onOpenEvidence}>
+        <button type="button" className="evidence-chip-btn review-evidence-btn" onClick={onOpenEvidence}>
           {evidenceChip}
           <span className="evidence-chip-note">
             {lastEvidenceRun
@@ -79,40 +77,40 @@ export default function Dashboard({ session, lastEvidenceRun, onOpenEvidence, on
       ) : !kpis ? (
         <SkeletonKpis />
       ) : (
-        <div className="hero-grid">
-          <div className="kpi-grid-figma">
-            <KpiCard
-              label="Total revenue" value={fmtINR(kpis.totalRevenue)} sub={`${fmtNum(kpis.totalOrders)} orders in total`}
-              tooltip="All order-line revenue for your company, from the shared warehouse. Other tenants' revenue is never included."
-              spark={monthlyRevenue} sparkColor={chartColor}
+        <>
+          <section className={`dashboard-hero hero-${meta.accent}`}>
+            <GradientWaves
+              className="hero-wave-canvas"
+              style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}
+              horizonColor="#a8b494"
+              waveColor="#526b4e"
+              crestColor="#e7f0e8"
+              speed={0.18}
+              amplitude={1.2}
+              waveScale={0.48}
+              swell={18}
+              turbulence={8}
+              tilt={56}
+              brightness={0.72}
+              opacity={0.24}
+              grain={0}
+              quality="low"
+              mouseInteraction={false}
+              swellOnClick={false}
+              dpr={1}
             />
-            <KpiCard
-              label="Orders" value={fmtNum(kpis.totalOrders)}
-              tooltip="Distinct orders placed by your company's customers."
-              spark={monthlyOrders} sparkColor={chartColor}
-            />
-            <KpiCard
-              label="Customers" value={fmtNum(kpis.totalCustomers)}
-              tooltip="Customers of your company with at least one order."
-            />
-            <KpiCard
-              label="Average order value" value={fmtINR(kpis.avgOrderValue)}
-              tooltip="Total revenue divided by total orders."
-            />
-          </div>
-          <SectionCard title="Revenue" action={<span className="section-meta">2025 · INR</span>}>
-            {summaryError ? (
-              <Banner tone="warning" title="Chart unavailable right now">{summaryError}</Banner>
-            ) : !summary ? (
-              <div><SkeletonKpis /></div>
-            ) : (
-              <BarChart
-                data={monthly.map((m) => ({ ...m, month: fmtMonth(m.month).split(' ')[0] }))}
-                xKey="month" yKey="revenue" color={chartColor} height={220}
-              />
-            )}
-          </SectionCard>
-        </div>
+            <div className="hero-total"><span className="hero-kicker">TOTAL REVENUE <i/> FY 2025</span><div className="hero-money">{fmtINR(kpis.totalRevenue)}</div><div className="hero-caption">Sales across {fmtNum(kpis.totalOrders)} orders</div></div>
+            <div className="hero-chart"><div className="hero-chart-head"><span>Sales over time</span><span>Monthly · INR</span></div>
+              {summaryError ? <div className="hero-chart-error">{summaryError}<button type="button" onClick={loadSummary}>Retry</button></div> : !summary ? <div className="hero-chart-loading"><span/><span/><span/><span/><span/><span/><span/><span/></div> : <MonthlyComboChart data={monthly} color={chartColor}/>}
+            </div>
+          </section>
+          <section className="metric-strip" aria-label="Business metrics">
+            <div className="metric-item"><span>ORDERS</span><strong>{fmtNum(kpis.totalOrders)}</strong><small>Placed in 2025</small></div>
+            <div className="metric-item"><span>CUSTOMERS</span><strong>{fmtNum(kpis.totalCustomers)}</strong><small>In this data scope</small></div>
+            <div className="metric-item"><span>AVERAGE ORDER</span><strong>{fmtINR(kpis.avgOrderValue)}</strong><small>Sales per order</small></div>
+            {summary?.discount && <div className="metric-item"><span>AVERAGE DISCOUNT</span><strong>{Number(summary.discount.avgDiscountPct).toFixed(2)}%</strong><small>{fmtINR(summary.discount.discountAmount)} total discount</small></div>}
+          </section>
+        </>
       )}
 
       {!kpisError && summaryError && (
@@ -123,19 +121,23 @@ export default function Dashboard({ session, lastEvidenceRun, onOpenEvidence, on
 
       {summary && (
         <>
-          <div className="chart-grid">
-            <SectionCard title="Revenue by channel">
+          <div className="chart-grid dashboard-analysis-grid">
+            <SectionCard title="Channel Mix">
               <HBarChart
                 data={summary.byChannel || []} labelKey="channel" valueKey="revenue"
                 color={chartColor}
               />
             </SectionCard>
-            <SectionCard title="Revenue by category">
+            <SectionCard title="Sales by Category">
               <HBarChart
                 data={summary.byCategory || []} labelKey="category" valueKey="revenue"
               />
             </SectionCard>
           </div>
+
+          <SectionCard title="Sales by Region" className="region-panel">
+            <HBarChart data={summary.byRegion || []} labelKey="region" valueKey="revenue" color={chartColor} />
+          </SectionCard>
 
           <div className="chart-grid">
             <SectionCard title="Top customers" action={<span className="section-meta">By revenue</span>}>

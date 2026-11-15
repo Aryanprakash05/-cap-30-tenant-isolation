@@ -10,15 +10,20 @@
  * tenant calls, a tenant ID: the server derives both from the token.
  */
 import { useState } from 'react'
+import '@fontsource-variable/dm-sans/wght.css'
+import '@fontsource/instrument-serif/latin-400.css'
+import '@fontsource/instrument-serif/latin-400-italic.css'
 import {
   Database, LayoutDashboard, LogOut, ShieldCheck, ShieldAlert, UserCog,
-  Wallet, FlaskConical, CircleDot,
+  Wallet, FlaskConical, CircleDot, Users, Gamepad2,
 } from 'lucide-react'
 import SignIn from './screens/SignIn.jsx'
 import Dashboard from './screens/Dashboard.jsx'
 import Evidence from './screens/Evidence.jsx'
 import Support from './screens/Support.jsx'
 import Usage from './screens/Usage.jsx'
+import Customers from './screens/Customers.jsx'
+import Products from './screens/Products.jsx'
 import { apiLogout, fmtTime } from './api'
 import { Drawer, StatusChip } from './components/ui'
 import './index.css'
@@ -90,13 +95,15 @@ export default function App() {
 
   const tabs = [
     ...(isSupport ? [] : [{ id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard }]),
+    { id: 'customers', label: 'Customers', icon: Users },
+    { id: 'products', label: 'Products', icon: Gamepad2 },
     { id: 'evidence', label: 'Security & Evidence', icon: FlaskConical },
     ...(isSupport ? [{ id: 'support', label: 'Support Console', icon: UserCog }] : []),
     { id: 'usage', label: 'Usage & Cost', icon: Wallet },
   ]
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${isSupport ? 'app-shell-support' : ''}`}>
       <div className="shell-body">
         <aside className="sidebar">
           <div className="sidebar-brand">
@@ -104,8 +111,24 @@ export default function App() {
             <span className="brand-name">DataVault</span>
           </div>
 
+          <div className="sidebar-context"><span className="sidebar-context-dot"/><span>{isSupport ? 'SUPPORT WORKSPACE' : 'TENANT WORKSPACE'}</span></div>
+
           <nav className="sidebar-nav" aria-label="Main">
-            {tabs.map((t) => (
+            <div className="nav-section-label">{isSupport ? 'CUSTOMER DATA' : 'ANALYTICS'}</div>
+            {tabs.filter((t) => ['dashboard', 'customers', 'products'].includes(t.id)).map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                className={`nav-item ${tab === t.id ? 'nav-active' : ''}`}
+                onClick={() => openTab(t.id)}
+                aria-current={tab === t.id ? 'page' : undefined}
+              >
+                <t.icon size={17} />
+                <span>{t.label}</span>
+              </button>
+            ))}
+            <div className="nav-section-label nav-section-platform">PLATFORM</div>
+            {tabs.filter((t) => !['dashboard', 'customers', 'products'].includes(t.id)).map((t) => (
               <button
                 key={t.id}
                 type="button"
@@ -176,6 +199,10 @@ export default function App() {
             />
           ) : tab === 'support' ? (
             <Support session={session} onSessionExpired={handleSessionExpired} />
+          ) : tab === 'customers' ? (
+            <Customers session={session} onSessionExpired={handleSessionExpired} />
+          ) : tab === 'products' ? (
+            <Products session={session} onSessionExpired={handleSessionExpired} />
           ) : (
             <Usage session={session} onSessionExpired={handleSessionExpired} />
           )}

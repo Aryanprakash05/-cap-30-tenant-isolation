@@ -5,9 +5,27 @@
  * Sparkline: thin line for the KPI cards. The y scale always covers the
  * largest value, so no bar can clip at the top.
  */
-import { fmtINR0 } from '../api'
+import { fmtINR0, fmtINR, fmtNum, fmtMonth } from '../api'
 
 const TRACK = '#e7f0e8'
+
+export function MonthlyComboChart({ data, color = '#667858' }) {
+  const W = 760, H = 270, L = 64, R = 20, T = 38, B = 42
+  if (!data.length) return <div className="chart-empty">No monthly sales recorded.</div>
+  const maxRevenue = Math.max(1, ...data.map((d) => Number(d.revenue) || 0))
+  const maxOrders = Math.max(1, ...data.map((d) => Number(d.orders) || 0))
+  const plotW = W - L - R, plotH = H - T - B, step = plotW / data.length, bw = Math.min(28, step * .52)
+  const points = data.map((d, i) => `${L + step * (i + .5)},${T + plotH * (1 - (Number(d.orders) || 0) / maxOrders)}`).join(' ')
+  return <div className="chart-wrap"><svg viewBox={`0 0 ${W} ${H}`} className="chart" role="img" aria-label="Monthly sales and order count">
+    {data.map((d, i) => { const v = Number(d.revenue) || 0, h = plotH * v / maxRevenue, x = L + step * (i + .5) - bw / 2, y = T + plotH - h; return <g key={d.month}>
+      <rect x={x} y={T} width={bw} height={plotH} rx="3" fill={TRACK}/><rect x={x} y={y} width={bw} height={h} rx="3" fill={color}/>
+      <text x={x + bw/2} y={Math.max(20, y - 5)} textAnchor="middle" transform={`rotate(-38 ${x + bw/2} ${Math.max(20, y - 5)})`} className="chart-tick">{fmtINR(v)}</text>
+      <text x={L + step*(i+.5)} y={H-B+18} textAnchor="middle" className="chart-tick">{fmtMonth(String(d.month).slice(0, 7))}</text>
+    </g>})}
+    <polyline points={points} fill="none" stroke="#57534e" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round"/>
+    {data.map((d,i)=>{const x=L+step*(i+.5),y=T+plotH*(1-(Number(d.orders)||0)/maxOrders); return <g key={`order-${d.month}`}><circle cx={x} cy={y} r="3.5" fill="#57534e"/><text x={x} y={y-8} textAnchor="middle" className="chart-tick">{fmtNum(d.orders)}</text></g>})}
+  </svg><div className="chart-legend"><span><i style={{background:color}}/>Sales</span><span><i style={{background:'#57534e'}}/>Orders</span></div></div>
+}
 
 function niceTicks(max, count = 4) {
   if (max <= 0) return [0]
@@ -22,7 +40,7 @@ function niceTicks(max, count = 4) {
   return ticks
 }
 
-export function BarChart({ data, xKey, yKey, color = '#276a3f', height = 220, formatY = fmtINR0 }) {
+export function BarChart({ data, xKey, yKey, color = '#667858', height = 220, formatY = fmtINR0 }) {
   const W = 640
   const H = height
   const padL = 56
@@ -67,7 +85,7 @@ export function BarChart({ data, xKey, yKey, color = '#276a3f', height = 220, fo
   )
 }
 
-export function HBarChart({ data, labelKey, valueKey, formatValue = fmtINR0, color = '#276a3f', maxRows = 8 }) {
+export function HBarChart({ data, labelKey, valueKey, formatValue = fmtINR, color = '#667858', maxRows = 8 }) {
   const rows = data.slice(0, maxRows)
   const max = Math.max(0, ...rows.map((d) => Number(d[valueKey]) || 0))
   if (!rows.length) return <div className="chart-empty">No data for this period.</div>
